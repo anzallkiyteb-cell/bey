@@ -43,6 +43,7 @@ const GET_DASHBOARD_DATA = gql`
         photo
         zktime_id
         is_blocked
+        status
       }
       clockIn
       clockOut

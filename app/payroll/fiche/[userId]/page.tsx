@@ -23,7 +23,7 @@ import {
     DialogFooter,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { ChevronLeft, FileText, Printer, Save, RefreshCw, AlertCircle, TrendingUp, TrendingDown, Wallet, CheckCircle, XCircle } from "lucide-react"
+import { ChevronLeft, FileText, Printer, Save, RefreshCw, AlertCircle, TrendingUp, TrendingDown, Wallet, CheckCircle, XCircle, Loader2 } from "lucide-react"
 import { useState, useMemo, useEffect } from "react"
 import { gql, useQuery, useMutation } from "@apollo/client"
 import { useParams, useRouter } from "next/navigation"
@@ -109,7 +109,8 @@ export default function UserFichePage() {
             month: selectedMonth,
             userId: userId ? String(userId) : ""
         },
-        skip: !userId
+        skip: !userId,
+        fetchPolicy: "cache-and-network"
     })
 
     if (userError) console.error("User Query Error:", userError);
@@ -211,38 +212,85 @@ export default function UserFichePage() {
         setIsEditDialogOpen(true)
     }
 
+    const handleFieldChange = (field: string, value: any) => {
+        let newEditForm = { ...editForm, [field]: value };
+
+        // Auto-Remarque Logic
+        if (field === 'present') {
+            if (value === 1 && (!editForm.remarque || editForm.remarque === "ABSENT" || editForm.remarque === "Absence injustifiée")) {
+                newEditForm.remarque = "Présence manuelle";
+            } else if (value === 0 && (!editForm.remarque || editForm.remarque === "Présence manuelle" || editForm.remarque === "Présent")) {
+                newEditForm.remarque = "Absence injustifiée";
+            }
+        }
+
+        if (field === 'retard' && parseInt(value) > 0 && !newEditForm.remarque) {
+            newEditForm.remarque = `Retard de ${value} min`;
+        }
+
+        if (field === 'mise_a_pied' && parseFloat(value) > 0 && (!newEditForm.remarque || newEditForm.remarque === "Absence injustifiée")) {
+            newEditForm.remarque = `Mise à pied (${value} jours)`;
+        }
+
+        if (field === 'prime' && parseFloat(value) > 0 && !newEditForm.remarque) {
+            newEditForm.remarque = "Prime";
+        }
+
+        if (field === 'infraction' && parseFloat(value) > 0 && !newEditForm.remarque) {
+            newEditForm.remarque = "Infraction / Sanction";
+        }
+
+        if (field === 'extra' && parseFloat(value) > 0 && !newEditForm.remarque) {
+            newEditForm.remarque = "Extra";
+        }
+
+        if (field === 'doublage' && parseFloat(value) > 0 && !newEditForm.remarque) {
+            newEditForm.remarque = "Doublage";
+        }
+
+        if (field === 'acompte' && parseFloat(value) > 0 && !newEditForm.remarque) {
+            newEditForm.remarque = "Avance sur salaire";
+        }
+
+        setEditForm(newEditForm);
+    }
+
     const saveEdit = async () => {
         if (!editingId || isSaving) return
         setIsSaving(true)
         try {
-            const res = await updateRecord({
+            const input = {
+                present: parseInt(String(editForm.present)),
+                acompte: parseFloat(String(editForm.acompte || 0)),
+                extra: parseFloat(String(editForm.extra || 0)),
+                prime: parseFloat(String(editForm.prime || 0)),
+                infraction: parseFloat(String(editForm.infraction || 0)),
+                retard: parseInt(String(editForm.retard || 0)),
+                mise_a_pied: parseFloat(String(editForm.mise_a_pied || 0)),
+                doublage: parseFloat(String(editForm.doublage || 0)),
+                remarque: editForm.remarque
+            };
+
+            await updateRecord({
                 variables: {
                     month: selectedMonth,
                     id: editingId,
-                    input: {
-                        present: parseInt(String(editForm.present)),
-                        acompte: parseFloat(String(editForm.acompte || 0)),
-                        extra: parseFloat(String(editForm.extra || 0)),
-                        prime: parseFloat(String(editForm.prime || 0)),
-                        infraction: parseFloat(String(editForm.infraction || 0)),
-                        retard: parseInt(String(editForm.retard || 0)),
-                        mise_a_pied: parseFloat(String(editForm.mise_a_pied || 0)),
-                        doublage: parseFloat(String(editForm.doublage || 0)),
-                        remarque: editForm.remarque
+                    input
+                },
+                optimisticResponse: {
+                    updatePayrollRecord: {
+                        id: editingId,
+                        ...input,
+                        __typename: "PayrollRecord"
                     }
                 }
             })
 
-            if (res.data?.updatePayrollRecord) {
-                await refetchPayroll()
-                setIsEditDialogOpen(false)
-                setEditingId(null)
-            } else {
-                alert("Erreur: Aucune donnée retournée")
-            }
+            setIsEditDialogOpen(false)
+            setEditingId(null)
         } catch (err) {
             console.error("Update Error:", err)
-            alert("Erreur lors de l'enregistrement. Vérifiez votre connexion.")
+            alert("Erreur lors de l'enregistrement.")
         } finally {
             setIsSaving(false)
         }
@@ -586,14 +634,14 @@ export default function UserFichePage() {
                                 <Label className="text-[10px] font-black uppercase text-[#8b5a2b] ml-1">Statut de Présence</Label>
                                 <div className="flex bg-[#f8f6f1] p-1.5 rounded-2xl gap-2 border border-[#c9b896]/30">
                                     <button
-                                        onClick={() => setEditForm({ ...editForm, present: 1 })}
+                                        onClick={() => handleFieldChange('present', 1)}
                                         className={cn(
                                             "flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase transition-all flex items-center justify-center gap-2",
                                             editForm.present === 1 ? "bg-emerald-600 text-white shadow-lg scale-[1.02]" : "text-[#6b5744] hover:bg-white"
                                         )}
                                     ><CheckCircle className="h-4 w-4" /> Présent</button>
                                     <button
-                                        onClick={() => setEditForm({ ...editForm, present: 0 })}
+                                        onClick={() => handleFieldChange('present', 0)}
                                         className={cn(
                                             "flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase transition-all flex items-center justify-center gap-2",
                                             editForm.present === 0 ? "bg-red-600 text-white shadow-lg scale-[1.02]" : "text-[#6b5744] hover:bg-white"
@@ -607,7 +655,7 @@ export default function UserFichePage() {
                                 <Input
                                     type="number"
                                     value={editForm.retard}
-                                    onChange={e => setEditForm({ ...editForm, retard: e.target.value })}
+                                    onChange={e => handleFieldChange('retard', e.target.value)}
                                     className="h-12 rounded-2xl border-[#c9b896] bg-[#f8f6f1]/50 font-bold focus:bg-white transition-all"
                                 />
                             </div>
@@ -617,7 +665,7 @@ export default function UserFichePage() {
                                 <Input
                                     type="number"
                                     value={editForm.mise_a_pied}
-                                    onChange={e => setEditForm({ ...editForm, mise_a_pied: e.target.value })}
+                                    onChange={e => handleFieldChange('mise_a_pied', e.target.value)}
                                     className="h-12 rounded-2xl border-[#c9b896] bg-[#f8f6f1]/50 font-bold focus:bg-white transition-all text-red-600"
                                 />
                             </div>
@@ -627,7 +675,7 @@ export default function UserFichePage() {
                                 <Input
                                     type="number"
                                     value={editForm.prime}
-                                    onChange={e => setEditForm({ ...editForm, prime: e.target.value })}
+                                    onChange={e => handleFieldChange('prime', e.target.value)}
                                     className="h-12 rounded-2xl border-[#c9b896] bg-blue-50/50 font-bold focus:bg-white transition-all text-blue-700"
                                 />
                             </div>
@@ -637,7 +685,7 @@ export default function UserFichePage() {
                                 <Input
                                     type="number"
                                     value={editForm.infraction}
-                                    onChange={e => setEditForm({ ...editForm, infraction: e.target.value })}
+                                    onChange={e => handleFieldChange('infraction', e.target.value)}
                                     className="h-12 rounded-2xl border-[#c9b896] bg-red-50/50 font-bold focus:bg-white transition-all text-red-700"
                                 />
                             </div>
@@ -647,7 +695,7 @@ export default function UserFichePage() {
                                 <Input
                                     type="number"
                                     value={editForm.acompte}
-                                    onChange={e => setEditForm({ ...editForm, acompte: e.target.value })}
+                                    onChange={e => handleFieldChange('acompte', e.target.value)}
                                     className="h-12 rounded-2xl border-[#c9b896] bg-gray-50/50 font-bold focus:bg-white transition-all"
                                 />
                             </div>
@@ -657,7 +705,7 @@ export default function UserFichePage() {
                                 <Input
                                     type="number"
                                     value={editForm.extra}
-                                    onChange={e => setEditForm({ ...editForm, extra: e.target.value })}
+                                    onChange={e => handleFieldChange('extra', e.target.value)}
                                     className="h-12 rounded-2xl border-[#c9b896] bg-emerald-50/50 font-bold focus:bg-white transition-all text-emerald-700"
                                 />
                             </div>
@@ -667,7 +715,7 @@ export default function UserFichePage() {
                                 <Input
                                     type="number"
                                     value={editForm.doublage}
-                                    onChange={e => setEditForm({ ...editForm, doublage: e.target.value })}
+                                    onChange={e => handleFieldChange('doublage', e.target.value)}
                                     className="h-12 rounded-2xl border-[#c9b896] bg-cyan-50/50 font-bold focus:bg-white transition-all text-cyan-700"
                                 />
                             </div>
@@ -694,7 +742,7 @@ export default function UserFichePage() {
                                 disabled={isSaving}
                                 className="h-12 px-10 rounded-2xl bg-[#8b5a2b] hover:bg-[#6b4521] text-white font-black uppercase text-[11px] tracking-widest shadow-xl shadow-[#8b5a2b]/20 flex items-center justify-center gap-2 flex-1 sm:flex-none order-1 sm:order-2"
                             >
-                                {isSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                                 {isSaving ? "Enregistrement..." : "Enregistrer les modifications"}
                             </Button>
                         </DialogFooter>

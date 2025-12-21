@@ -19,8 +19,10 @@ import {
   Award,
   Wallet,
   Search,
+  Layers,
 } from "lucide-react"
 import { useState, useMemo, useEffect } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
 import { NotificationBell } from "@/components/notification-bell"
 import { getCurrentUser } from "@/lib/mock-data"
 import { gql, useQuery, useMutation } from "@apollo/client"
@@ -72,6 +74,13 @@ const GET_PAYROLL_PAGE = gql`
       user_id
       montant
       date_extra
+    }
+    getDoublages(month: $month) {
+      id
+      user_id
+      username
+      montant
+      date
     }
   }
 `
@@ -155,6 +164,8 @@ export default function PayrollPage() {
     variables: { month: payrollMonthKey },
     fetchPolicy: "cache-and-network"
   })
+
+
 
   // Permission Logic
   const currentUser = getCurrentUser();
@@ -242,6 +253,39 @@ export default function PayrollPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedDepartment, setSelectedDepartment] = useState("all")
 
+  // Auto-scroll Logic
+  const searchParams = useSearchParams();
+  const userIdParam = searchParams.get("userId");
+
+  useEffect(() => {
+    if (!userIdParam || !data?.personnelStatus) return;
+
+    // 1. Clear filters
+    if (searchTerm) setSearchTerm("");
+    if (selectedDepartment !== "all") setSelectedDepartment("all");
+
+    // 2. Poll for the row/card
+    let attempts = 0;
+    const interval = setInterval(() => {
+      const desktopEl = document.getElementById(`payroll-desktop-${userIdParam}`);
+      const mobileEl = document.getElementById(`payroll-mobile-${userIdParam}`);
+      // Select the one that is likely visible (offsetParent is null if display:none)
+      const element = (desktopEl && desktopEl.offsetParent !== null) ? desktopEl : mobileEl;
+
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element.classList.add('bg-[#8b5a2b]/30', 'ring-4', 'ring-[#8b5a2b]/30', 'transition-all', 'duration-500', 'z-20', 'relative');
+        setTimeout(() => {
+          element.classList.remove('bg-[#8b5a2b]/30', 'ring-4', 'ring-[#8b5a2b]/30');
+        }, 3000);
+        clearInterval(interval);
+      }
+      if (attempts++ > 20) clearInterval(interval);
+    }, 200);
+
+    return () => clearInterval(interval);
+  }, [userIdParam, data?.personnelStatus]);
+
   // Extra Dialog Filters
   const [extraSearchTerm, setExtraSearchTerm] = useState("")
   const [extraSelectedDepartment, setExtraSelectedDepartment] = useState("all")
@@ -253,6 +297,9 @@ export default function PayrollPage() {
   const [primeDate, setPrimeDate] = useState<Date | undefined>(new Date())
   const [primeSearchTerm, setPrimeSearchTerm] = useState("")
   const [primeSelectedDepartment, setPrimeSelectedDepartment] = useState("all")
+
+  // Doublage View Dialog State
+  const [viewDoublagesOpen, setViewDoublagesOpen] = useState(false)
 
   const [addExtra, { loading: addingExtra }] = useMutation(ADD_EXTRA)
   const [addDoublage, { loading: addingDoublage }] = useMutation(ADD_DOUBLAGE)
@@ -754,7 +801,10 @@ export default function PayrollPage() {
               </Card>
             )}
             {canSee('payroll', 'stats_doublages') && (
-              <Card className="border-[#c9b896] bg-white p-4 shadow-md">
+              <Card
+                className="border-[#c9b896] bg-white p-4 shadow-md cursor-pointer hover:bg-[#f8f6f1] transition-colors"
+                onClick={() => setViewDoublagesOpen(true)}
+              >
                 <p className="text-sm text-[#6b5744]">Total Doublages</p>
                 <p className="text-2xl font-bold text-cyan-600">{Math.round(globalStats.totalDoublages)} DT</p>
               </Card>
@@ -805,7 +855,7 @@ export default function PayrollPage() {
                 </thead>
                 <tbody>
                   {filteredPayrollSummary.map((p: any) => (
-                    <tr key={p.userId} className="border-b border-[#c9b896]/30 hover:bg-[#f8f6f1]/50">
+                    <tr key={p.userId} id={`payroll-desktop-${p.userId}`} className="border-b border-[#c9b896]/30 hover:bg-[#f8f6f1]/50">
                       {canSee('payroll', 'col_employee') && (
                         <td className="p-4">
                           <button
@@ -851,7 +901,7 @@ export default function PayrollPage() {
             {/* Mobile List View */}
             <div className="md:hidden space-y-4">
               {filteredPayrollSummary.map((p: any) => (
-                <div key={p.userId} className="bg-white border border-[#c9b896] rounded-xl p-4 shadow-sm flex flex-col gap-3">
+                <div key={p.userId} id={`payroll-mobile-${p.userId}`} className="bg-white border border-[#c9b896] rounded-xl p-4 shadow-sm flex flex-col gap-3">
                   <div className="flex items-center justify-between">
                     <button
                       onClick={() => canSee('payroll', 'user_details_modal') && openEmployeePlanning(p)}
@@ -1141,6 +1191,79 @@ export default function PayrollPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Doublages List Dialog */}
+      <Dialog open={viewDoublagesOpen} onOpenChange={setViewDoublagesOpen}>
+        <DialogContent className="bg-white border-[#c9b896] sm:max-w-[500px] rounded-2xl p-6 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-[#8b5a2b] flex items-center gap-2">
+              <Layers className="h-5 w-5 text-cyan-600" /> Liste des Doublages
+            </DialogTitle>
+            <p className="text-sm text-[#6b5744]">Doublages pour {format(selectedMonth, 'MMMM yyyy', { locale: fr })}</p>
+          </DialogHeader>
+
+          <div className="mt-4 space-y-3 max-h-[400px] overflow-y-auto pr-2">
+            {useMemo(() => {
+              const doublageList = data?.getDoublages || [];
+              if (doublageList.length === 0) return <div className="text-center py-8 text-[#6b5744]">Aucun doublage ce mois-ci</div>;
+
+              // Aggregate by user
+              const userMap = new Map();
+              doublageList.forEach((d: any) => {
+                if (!userMap.has(d.user_id)) {
+                  userMap.set(d.user_id, {
+                    id: d.user_id,
+                    username: d.username,
+                    total: 0,
+                    dates: [],
+                    photo: users.find((u: any) => u.id === d.user_id)?.photo
+                  });
+                }
+                const userEntry = userMap.get(d.user_id);
+                userEntry.total += d.montant;
+                userEntry.dates.push(d.date);
+              });
+
+              return Array.from(userMap.values()).map((entry: any) => (
+                <div key={entry.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
+                        {entry.photo ? (
+                          <img src={entry.photo} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
+                            {entry.username?.charAt(0)}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <p className="font-bold text-[#3d2c1e] text-sm">{entry.username}</p>
+                      </div>
+                    </div>
+                    <div className="text-cyan-600 font-black text-sm">
+                      {entry.total.toLocaleString()} DT
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[#c9b896]/10">
+                    <span className="text-[9px] font-black uppercase text-[#6b5744]/50 w-full mb-1">Dates travaillées:</span>
+                    {entry.dates.map((d: string, i: number) => (
+                      <span key={i} className="px-2 py-0.5 rounded-full bg-white border border-[#c9b896]/30 text-[10px] font-bold text-[#3d2c1e] shadow-sm">
+                        {format(new Date(d), 'dd MMM yyyy', { locale: fr })}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ));
+            }, [data?.getDoublages, users, selectedMonth])}
+          </div>
+
+          <div className="mt-6 pt-4 border-t border-[#c9b896]/30 flex justify-between items-center font-black text-[#8b5a2b]">
+            <span>TOTAL GLOBAL</span>
+            <span className="text-xl text-cyan-700">{Math.round(globalStats.totalDoublages).toLocaleString()} DT</span>
           </div>
         </DialogContent>
       </Dialog>

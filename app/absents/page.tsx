@@ -33,7 +33,11 @@ const GET_ABSENTS_DATA = gql`
         username
         role
         departement
+        base_salary
+        photo
+        zktime_id
         is_blocked
+        status
       }
     }
     getAbsents(date: $date, startDate: $startDate, endDate: $endDate) {

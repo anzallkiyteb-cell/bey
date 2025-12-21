@@ -5,8 +5,9 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { RoleBadge } from "@/components/role-badge"
-import { Search, UserPlus, Mail, Eye, Edit, X, Phone, CreditCard, Check, ChevronsUpDown, DollarSign, Camera, Upload, Trash2, AlertTriangle } from "lucide-react"
-import { useState, useMemo } from "react"
+import { Search, UserPlus, Mail, Eye, Edit, X, Phone, CreditCard, Check, ChevronsUpDown, DollarSign, Camera, Upload, Trash2, AlertTriangle, Loader2 } from "lucide-react"
+import { useState, useMemo, useEffect, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { NotificationBell } from "@/components/notification-bell"
@@ -105,24 +106,34 @@ const TOGGLE_USER_BLOCK = gql`
 import { getCurrentUser } from "@/lib/mock-data"
 
 export default function EmployeesPage() {
+  return (
+    <Suspense fallback={<div className="flex h-screen w-full items-center justify-center bg-[#fcfaf8] font-black uppercase tracking-widest text-[#8b5a2b] animate-pulse">Chargement de l'annuaire...</div>}>
+      <EmployeesContent />
+    </Suspense>
+  )
+}
+
+function EmployeesContent() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedDepartment, setSelectedDepartment] = useState("all")
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [showProfileDialog, setShowProfileDialog] = useState(false)
   const [selectedEmployee, setSelectedEmployee] = useState<any | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
 
   const [openCombobox, setOpenCombobox] = useState(false)
   const [searchValue, setSearchValue] = useState("")
+  const searchParams = useSearchParams()
+  const userIdParam = searchParams.get("userId")
 
   const { data, loading, error, refetch } = useQuery(GET_ALL_EMPLOYEES, {
-    // pollInterval removed
-    fetchPolicy: "cache-and-network"
+    fetchPolicy: "cache-first",
+    nextFetchPolicy: "cache-and-network",
+    notifyOnNetworkStatusChange: false,
   });
 
-  const [addUser] = useMutation(ADD_USER, {
-    onCompleted: () => refetch()
-  });
+  const [addUser] = useMutation(ADD_USER);
 
   const currentUser = getCurrentUser();
   let permissions: any = {};
@@ -132,9 +143,7 @@ export default function EmployeesPage() {
 
   const canAddEmployee = currentUser?.role === 'admin' || permissions.employees?.add_employee !== false;
 
-  const [updateUser] = useMutation(UPDATE_USER, {
-    onCompleted: () => refetch()
-  });
+  const [updateUser] = useMutation(UPDATE_USER);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -191,6 +200,39 @@ export default function EmployeesPage() {
       managerId: null
     }));
   }, [data]);
+
+  // Handle auto-scroll to user from notification
+  useEffect(() => {
+    if (!userIdParam || employees.length === 0) return;
+
+    // 1. Open profile if found
+    const targetUser = employees.find((e: any) => e.id === userIdParam);
+    if (targetUser) {
+      setSelectedEmployee(targetUser);
+      setShowProfileDialog(true);
+    }
+
+    // 2. Clear filters
+    if (searchQuery) setSearchQuery("");
+    if (selectedDepartment !== "all") setSelectedDepartment("all");
+
+    // 3. Poll for the card to scroll to
+    let attempts = 0;
+    const interval = setInterval(() => {
+      const element = document.getElementById(`employee-card-${userIdParam}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element.classList.add('ring-8', 'ring-[#8b5a2b]/40', 'ring-offset-4', 'transition-all', 'duration-500', 'z-20', 'relative');
+        setTimeout(() => {
+          element.classList.remove('ring-8', 'ring-[#8b5a2b]/40', 'ring-offset-4');
+        }, 5000);
+        clearInterval(interval);
+      }
+      if (attempts++ > 20) clearInterval(interval);
+    }, 200);
+
+    return () => clearInterval(interval);
+  }, [userIdParam, employees.length > 0]);
 
   const filteredEmployees = employees.filter((employee: any) => {
     const matchesSearch =
@@ -272,6 +314,7 @@ export default function EmployeesPage() {
   }
 
   const handleAddEmployee = async () => {
+    setIsSaving(true);
     try {
       const res = await addUser({
         variables: {
@@ -304,9 +347,12 @@ export default function EmployeesPage() {
 
       setShowAddDialog(false)
       resetForm()
+      await refetch()
     } catch (e) {
       console.error(e)
       alert("Erreur lors de la création")
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -331,6 +377,7 @@ export default function EmployeesPage() {
 
   const handleUpdateEmployee = async () => {
     if (!selectedEmployee) return;
+    setIsSaving(true);
     try {
       await updateUser({
         variables: {
@@ -364,9 +411,12 @@ export default function EmployeesPage() {
       setShowEditDialog(false)
       setSelectedEmployee(null)
       resetForm()
+      await refetch()
     } catch (e) {
       console.error(e)
       alert("Erreur lors de la modification")
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -455,6 +505,7 @@ export default function EmployeesPage() {
             {filteredEmployees.map((employee: any) => (
               <Card
                 key={employee.id}
+                id={`employee-card-${employee.id}`}
                 className="group relative border-0 bg-white shadow-md hover:shadow-xl transition-all duration-300 rounded-xl sm:rounded-2xl overflow-hidden ring-1 ring-[#c9b896]/20"
               >
                 <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#8b5a2b] to-[#c9b896] opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -886,20 +937,20 @@ export default function EmployeesPage() {
           </div>
 
           <DialogFooter className="p-5 sm:p-6 md:p-8 bg-[#f8f6f1] border-t border-[#c9b896]/20">
-            <div className="flex w-full items-center justify-between gap-4">
+            <div className="flex flex-col-reverse sm:flex-row w-full items-center justify-between gap-4">
               {/* Delete Button (Only in Edit Mode) */}
               {!showAddDialog && (
                 <Button
                   variant="ghost"
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50 h-10 sm:h-12 px-4"
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50 h-10 sm:h-12 px-4 w-full sm:w-auto"
                 >
                   <Trash2 className="mr-2 h-5 w-5" />
-                  Supprimer
+                  Supprimer l'employé
                 </Button>
               )}
 
-              <div className="flex flex-1 justify-end gap-3 sm:gap-4">
+              <div className="flex flex-col sm:flex-row flex-1 justify-end gap-3 sm:gap-4 w-full sm:w-auto">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -913,10 +964,17 @@ export default function EmployeesPage() {
                 </Button>
                 <Button
                   onClick={showAddDialog ? handleAddEmployee : handleUpdateEmployee}
-                  className="bg-[#8b5a2b] hover:bg-[#6b4521] text-white shadow-md h-10 sm:h-12 text-base w-full sm:w-auto sm:min-w-[160px]"
-                  disabled={!formData.name || !formData.email}
+                  className="bg-[#8b5a2b] hover:bg-[#6b4521] text-white shadow-md h-10 sm:h-12 text-base w-full sm:w-auto sm:min-w-[160px] flex items-center justify-center"
+                  disabled={!formData.name || !formData.email || isSaving}
                 >
-                  {showAddDialog ? "Créer le profil" : "Enregistrer"}
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Enregistrement...
+                    </>
+                  ) : (
+                    showAddDialog ? "Créer le profil" : "Enregistrer"
+                  )}
                 </Button>
               </div>
             </div>

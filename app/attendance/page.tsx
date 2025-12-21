@@ -8,6 +8,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Clock, CheckCircle, Search, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Users, Filter, XCircle, Award, TrendingUp } from "lucide-react"
 import { useState, useMemo, Suspense, useEffect, useRef } from "react"
+import { useSearchParams } from "next/navigation"
 import { gql, useQuery, useMutation } from "@apollo/client"
 import { format, subDays, addDays } from "date-fns"
 import { fr } from "date-fns/locale"
@@ -18,16 +19,18 @@ import { Label } from "@/components/ui/label"
 import { startOfMonth, endOfMonth } from "date-fns"
 
 const GET_PERSONNEL_STATUS = gql`
-  query GetPersonnelStatus($date: String, $filter: String) {
-    personnelStatus(date: $date, filter: $filter) {
+  query GetPersonnelStatus($date: String) {
+    personnelStatus(date: $date) {
       user {
         id
         username
-        departement
         role
-        status
+        departement
+        base_salary
         photo
+        zktime_id
         is_blocked
+        status
       }
       clockIn
       clockOut
@@ -36,7 +39,7 @@ const GET_PERSONNEL_STATUS = gql`
       lastPunch
     }
   }
-`
+`;
 
 
 const ADD_PRIME = gql`
@@ -53,6 +56,14 @@ const SYNC_ATTENDANCE = gql`
       syncAttendance(date: $date)
     }
 `
+
+export default function AttendancePage() {
+  return (
+    <Suspense fallback={<div className="flex h-screen w-full items-center justify-center bg-[#fcfaf8] font-black uppercase tracking-widest text-[#8b5a2b] animate-pulse">Chargement des présences...</div>}>
+      <AttendanceContent />
+    </Suspense>
+  )
+}
 
 function AttendanceContent() {
   // Logical Today (respected 04:00 AM cutoff)
@@ -86,6 +97,19 @@ function AttendanceContent() {
   const [primeAmount, setPrimeAmount] = useState("")
   const [primeDate, setPrimeDate] = useState<Date>(new Date())
   const listRef = useRef<HTMLDivElement>(null)
+  const searchParams = useSearchParams()
+  const userIdParam = searchParams.get("userId")
+  const dateParam = searchParams.get("date")
+
+  // Handle date from URL
+  useEffect(() => {
+    if (dateParam) {
+      const parsed = new Date(dateParam);
+      if (!isNaN(parsed.getTime())) {
+        setDate(parsed);
+      }
+    }
+  }, [dateParam]);
 
   const scrollToList = () => {
     setTimeout(() => {
@@ -104,8 +128,9 @@ function AttendanceContent() {
     variables: {
       date: formattedDate
     },
-    fetchPolicy: "cache-and-network"
-    // pollInterval removed
+    fetchPolicy: "cache-first",
+    nextFetchPolicy: "cache-and-network",
+    notifyOnNetworkStatusChange: false,
   });
 
   const monthStart = format(startOfMonth(date), "yyyy-MM-dd");
@@ -115,18 +140,14 @@ function AttendanceContent() {
   const [syncAttendance] = useMutation(SYNC_ATTENDANCE);
 
   // Trigger sync on mount and date change
-  const [isSyncing, setIsSyncing] = useState(false);
   useEffect(() => {
-    setIsSyncing(true);
-    syncAttendance({ variables: { date: formattedDate } })
-      .then(() => {
-        setIsSyncing(false);
-      })
-      .catch(e => {
-        console.error("Sync Error:", e);
-        setIsSyncing(false);
-      });
+    const timer = setTimeout(() => {
+      syncAttendance({ variables: { date: formattedDate } }).catch(e => console.error("Sync Error:", e));
+    }, 100);
+    return () => clearTimeout(timer);
   }, [formattedDate, syncAttendance]);
+
+
 
   const allPersonnel = useMemo(() => {
     if (!data?.personnelStatus) return [];
@@ -137,6 +158,33 @@ function AttendanceContent() {
     const depts = new Set(allPersonnel.map((p: any) => p.user.departement).filter(Boolean));
     return Array.from(depts) as string[];
   }, [allPersonnel]);
+
+  // Handle auto-scroll to user from notification
+  useEffect(() => {
+    if (!userIdParam || allPersonnel.length === 0) return;
+
+    // 1. Clear filters immediately
+    if (selectedDept !== "all") setSelectedDept("all");
+    if (statusFilter !== "all") setStatusFilter("all");
+    if (searchTerm) setSearchTerm("");
+
+    // 2. Poll for the element to appear
+    let attempts = 0;
+    const interval = setInterval(() => {
+      const element = document.getElementById(`user-row-${userIdParam}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element.classList.add('bg-[#8b5a2b]/30', 'ring-8', 'ring-[#8b5a2b]/20', 'transition-all', 'duration-500', 'z-20', 'relative');
+        setTimeout(() => {
+          element.classList.remove('bg-[#8b5a2b]/30', 'ring-8', 'ring-[#8b5a2b]/20');
+        }, 5000);
+        clearInterval(interval);
+      }
+      if (attempts++ > 20) clearInterval(interval);
+    }, 200);
+
+    return () => clearInterval(interval);
+  }, [userIdParam, allPersonnel.length > 0]);
 
   const filteredPersonnel = useMemo(() => {
     let filtered = allPersonnel;
@@ -511,7 +559,7 @@ function AttendanceContent() {
                       <tr><td colSpan={7} className="p-20 text-center text-[#6b5744] text-xl font-bold animate-pulse">Chargement des présences...</td></tr>
                     ) : filteredPersonnel.length > 0 ? (
                       filteredPersonnel.map((person: any) => (
-                        <tr key={person.user.id} className="hover:bg-[#f8f6f1]/50 transition-colors group">
+                        <tr key={person.user.id} id={`user-row-${person.user.id}`} className="hover:bg-[#f8f6f1]/50 transition-colors group">
                           <td className="px-6 py-4 text-center">
                             <span className="text-xs font-black text-[#8b5a2b] opacity-40 bg-[#8b5a2b]/5 px-2 py-1 rounded">#{person.user.id}</span>
                           </td>
@@ -668,10 +716,3 @@ function AttendanceContent() {
   )
 }
 
-export default function AttendancePage() {
-  return (
-    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-[#f8f6f1]">Chargement...</div>}>
-      <AttendanceContent />
-    </Suspense>
-  )
-}

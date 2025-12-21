@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo, useEffect } from "react"
-import { Bell } from "lucide-react"
+import { Bell, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -16,6 +16,7 @@ import { getCurrentUser } from "@/lib/mock-data"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { gql, useQuery, useMutation } from "@apollo/client"
+import { cn } from "@/lib/utils"
 
 const GET_NOTIFICATIONS = gql`
   query GetNotifications($userId: ID, $limit: Int) {
@@ -28,12 +29,13 @@ const GET_NOTIFICATIONS = gql`
       timestamp
       read
       userDone
+      user_id
     }
   }
 `;
 
-const MARK_READ = gql`
-  mutation MarkRead($userId: ID!) {
+const MARK_ALL_READ = gql`
+  mutation MarkAllRead($userId: ID!) {
     markNotificationsAsRead(userId: $userId)
   }
 `;
@@ -52,59 +54,71 @@ export function NotificationBell() {
       userId: ['admin', 'manager'].includes(currentUser?.role || '') ? null : currentUser?.id,
       limit: 100
     },
-    pollInterval: 60000, // Reduced to every 60 seconds
+    pollInterval: 60000,
     fetchPolicy: "cache-and-network"
   });
 
-  // Pause polling if tab is hidden to save bandwidth/CPU
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        startPolling(60000);
-      } else {
-        stopPolling();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [startPolling, stopPolling]);
-
-  const [markRead] = useMutation(MARK_READ);
+  const [markAllRead] = useMutation(MARK_ALL_READ, {
+    onCompleted: () => refetch()
+  });
   const [markOneRead] = useMutation(MARK_ONE_READ);
 
   const notifications = useMemo(() => data?.getNotifications || [], [data]);
   const unreadCount = useMemo(() => notifications.filter((n: any) => !n.read).length, [notifications]);
 
-  const handleMarkAsRead = async () => {
-    // We no longer automatically mark all as read when opening
-    // unless you want to keep that behavior. 
-    // Usually, it's better to stay unread until interacted with or "Clear all"
+  const handleMarkAllAsRead = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentUser?.id) return;
+    await markAllRead({ variables: { userId: currentUser.id } });
   }
 
-  const handleNotificationClick = async (notification: any) => {
+  const handleNotificationClick = (notification: any) => {
+    // Immediate background mark-as-read
     if (!notification.read) {
-      await markOneRead({ variables: { id: notification.id } });
-      refetch();
+      markOneRead({ variables: { id: notification.id } }).catch(() => { });
     }
-    if (notification.url) {
-      router.push(notification.url);
+
+    let target = notification.url;
+
+    // 1. Extract UID from message fallback if user_id is missing (Facebook-style robustness)
+    let uid = notification.user_id;
+    if (!uid && notification.message) {
+      const match = notification.message.match(/\[REF:.*?(\d+)_/);
+      if (match) uid = match[1];
+    }
+
+    // 2. Self-healing for broken URLs (e.g., "/attendance?userId=")
+    const isBroken = target && target.includes('userId=') && (!target.split('userId=')[1] || target.split('userId=')[1].startsWith('&'));
+
+    if (!target || isBroken) {
+      if (notification.type === 'pointage') {
+        target = `/attendance?userId=${uid || ''}`;
+        // If it was a retard/absence with date in message, try to extract it too
+        const dateMatch = notification.message?.match(/le (\d{4}-\d{2}-\d{2})/);
+        if (dateMatch && !target.includes('date=')) target += `&date=${dateMatch[1]}`;
+      }
+      else if (notification.type === 'system' || notification.type === 'schedule') target = `/employees?userId=${uid || ''}`;
+      else if (notification.type === 'avance') target = `/advances?userId=${uid || ''}`;
+      else if (notification.type === 'payment') target = `/payroll`;
+      else target = '/';
+    }
+
+    // 3. Final cleanup and navigation
+    if (target) {
+      // Ensure we don't end up with just "?" or empty strings
+      if (target.endsWith('userId=')) target = target.replace('userId=', '');
+      router.push(target);
     }
   }
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
-      case "pointage":
-        return "🕐"
-      case "avance":
-        return "💰"
-      case "payment":
-        return "💵"
-      case "schedule":
-        return "📅"
-      case "system":
-        return "⚙️"
-      default:
-        return "🔔"
+      case "pointage": return "🕐"
+      case "avance": return "💰"
+      case "payment": return "💵"
+      case "schedule": return "📅"
+      case "system": return "⚙️"
+      default: return "🔔"
     }
   }
 
@@ -127,7 +141,7 @@ export function NotificationBell() {
   }
 
   return (
-    <DropdownMenu onOpenChange={(open) => open && handleMarkAsRead()}>
+    <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
@@ -142,65 +156,85 @@ export function NotificationBell() {
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[380px] sm:w-[420px] max-h-[600px] overflow-y-auto">
-        <DropdownMenuLabel className="flex items-center justify-between py-3 px-4">
-          <span className="text-lg lg:text-xl font-bold text-[#8b5a2b]">Notifications</span>
-          {unreadCount > 0 && (
-            <Badge variant="secondary" className="bg-red-100 text-red-700 text-sm">
-              {unreadCount} nouveau{unreadCount > 1 ? "x" : ""}
-            </Badge>
-          )}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {!data && loading ? (
-          <div className="py-12 text-center text-[#6b5744]">Chargement...</div>
-        ) : notifications.length === 0 ? (
-          <div className="py-12 text-center text-[#6b5744]">
-            <Bell className="h-12 w-12 mx-auto mb-3 text-[#c9b896]" />
-            <p className="text-base lg:text-lg">Aucune notification</p>
+      <DropdownMenuContent align="end" className="w-[380px] sm:w-[420px] max-h-[600px] overflow-hidden flex flex-col p-0">
+        <DropdownMenuLabel className="flex items-center justify-between py-4 px-5 bg-white border-b border-[#c9b896]/30">
+          <div className="flex flex-col">
+            <span className="text-lg lg:text-xl font-black text-[#8b5a2b] uppercase tracking-tight">Notifications</span>
+            {unreadCount > 0 && (
+              <span className="text-[10px] font-bold text-red-500 uppercase tracking-widest">{unreadCount} nouveau{unreadCount > 1 ? "x" : ""}</span>
+            )}
           </div>
-        ) : (
-          <>
-            {notifications.map((notification: any) => (
-              <DropdownMenuItem
-                key={notification.id}
-                onClick={() => handleNotificationClick(notification)}
-                className={`p-4 cursor-pointer hover:bg-[#f8f6f1] transition-colors ${!notification.read ? "bg-blue-50/50" : ""
-                  }`}
-              >
-                <div className="flex gap-3 w-full">
-                  <div className="text-2xl mt-1">{getNotificationIcon(notification.type)}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="font-semibold text-base lg:text-lg text-[#3d2c1e] leading-tight">
-                        {notification.title}
-                      </p>
-                      {!notification.read && (
-                        <div className="h-2.5 w-2.5 rounded-full bg-blue-500 flex-shrink-0 mt-1.5" />
-                      )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 text-[11px] font-black uppercase text-[#8b5a2b] hover:bg-[#8b5a2b]/5 gap-2"
+            onClick={handleMarkAllAsRead}
+          >
+            <Check className="h-3 w-3" /> Tout marquer comme lu
+          </Button>
+        </DropdownMenuLabel>
+
+        <div className="flex-1 overflow-y-auto">
+          {!data && loading ? (
+            <div className="py-12 text-center text-[#6b5744] font-bold animate-pulse uppercase tracking-widest text-xs">Chargement...</div>
+          ) : notifications.length === 0 ? (
+            <div className="py-20 text-center text-[#6b5744] opacity-40">
+              <Bell className="h-16 w-16 mx-auto mb-4 text-[#c9b896]" />
+              <p className="text-xs font-black uppercase tracking-widest">Aucune notification</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-[#c9b896]/10">
+              {notifications.map((notification: any) => (
+                <DropdownMenuItem
+                  key={notification.id}
+                  onClick={() => handleNotificationClick(notification)}
+                  className={cn(
+                    "p-5 cursor-pointer transition-all duration-200 focus:bg-[#f8f6f1]",
+                    !notification.read ? "bg-[#f8f6f1]/50 border-l-4 border-l-[#8b5a2b]" : "bg-white grayscale-[0.5] opacity-80"
+                  )}
+                >
+                  <div className="flex gap-4 w-full">
+                    <div className="text-2xl mt-0.5 filter drop-shadow-sm">{getNotificationIcon(notification.type)}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className={cn(
+                          "font-bold text-base leading-tight uppercase tracking-tight",
+                          !notification.read ? "text-[#3d2c1e]" : "text-[#6b5744]"
+                        )}>
+                          {notification.title}
+                        </p>
+                        {!notification.read && (
+                          <div className="h-2 w-2 rounded-full bg-[#8b5a2b] flex-shrink-0 mt-1.5 shadow-[0_0_8px_rgba(139,90,43,0.5)]" />
+                        )}
+                      </div>
+                      <p className="text-sm text-[#8b5a2b] mt-1 line-clamp-2 font-medium">{notification.message}</p>
+
+                      <div className="flex items-center justify-between mt-3">
+                        <div className="flex items-center gap-2">
+                          {notification.userDone && (
+                            <span className="text-[9px] font-black text-[#6b5744]/60 uppercase tracking-tighter bg-white px-1.5 py-0.5 rounded border border-[#c9b896]/20">
+                              Par: {notification.userDone}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[9px] font-black text-[#a08968] uppercase tracking-widest">{formatTimestamp(notification.timestamp)}</span>
+                      </div>
                     </div>
-                    <p className="text-sm lg:text-base text-[#6b5744] mt-1 line-clamp-2">{notification.message}</p>
-                    {notification.userDone && (
-                      <p className="text-[10px] lg:text-xs font-bold text-[#8b5a2b] mt-1 italic uppercase tracking-wider border-t border-[#8b5a2b]/10 pt-1">
-                        PAR: {notification.userDone}
-                      </p>
-                    )}
-                    <p className="text-[10px] lg:text-xs text-[#a08968] mt-2 uppercase font-medium">{formatTimestamp(notification.timestamp)}</p>
                   </div>
-                </div>
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link
-                href="/notifications"
-                className="w-full text-center py-3 text-base lg:text-lg font-semibold text-[#8b5a2b] hover:bg-[#f8f6f1] cursor-pointer"
-              >
-                Voir toutes les notifications
-              </Link>
-            </DropdownMenuItem>
-          </>
-        )}
+                </DropdownMenuItem>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <DropdownMenuItem asChild>
+          <Link
+            href="/notifications"
+            className="w-full text-center py-4 text-xs font-black uppercase tracking-widest text-[#8b5a2b] bg-[#f8f6f1]/50 hover:bg-[#f8f6f1] border-t border-[#c9b896]/30"
+          >
+            Toutes les notifications
+          </Link>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )

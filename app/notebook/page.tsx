@@ -32,6 +32,7 @@ import {
   History,
   Pencil,
   UserCheck,
+  Loader2,
 } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
@@ -51,14 +52,18 @@ const GET_NOTEBOOK_DATA = gql`
         id
         username
         role
-        status
-        zktime_id
         departement
-        email
-        phone
-        cin
+        base_salary
         photo
+        zktime_id
+        is_blocked
+        status
       }
+      clockIn
+      clockOut
+      state
+      shift
+      lastPunch
     }
     getRetards(startDate: $startDate, endDate: $endDate) {
       id
@@ -220,6 +225,7 @@ function NotebookContent() {
   const [localEntries, setLocalEntries] = useState<NotebookEntry[]>([])
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({ price: "", notes: "", type: "" })
+  const [isSaving, setIsSaving] = useState(false)
   const searchParams = useSearchParams()
   const userIdParam = searchParams.get("userId")
   const showHistoryParam = searchParams.get("showHistory")
@@ -233,8 +239,8 @@ function NotebookContent() {
       startDate: format(currentMonthStart, "yyyy-MM-dd"),
       endDate: format(currentMonthEnd, "yyyy-MM-dd"),
     },
-    pollInterval: 15000,
-    fetchPolicy: "network-only"
+    fetchPolicy: "cache-first",
+    nextFetchPolicy: "cache-and-network"
   });
 
   const [addRetard] = useMutation(ADD_RETARD, { onCompleted: () => refetch() });
@@ -359,7 +365,8 @@ function NotebookContent() {
   }
 
   const handleSave = async () => {
-    if (!selectedUser || !selectedNoteType || !selectedDate || !selectedTime) return
+    if (!selectedUser || !selectedNoteType || !selectedDate || !selectedTime || isSaving) return
+    setIsSaving(true)
     const dateTimeStr = `${format(selectedDate, 'yyyy-MM-dd')}T${selectedTime}:00`;
     try {
       if (selectedNoteType === 'retard') {
@@ -373,8 +380,6 @@ function NotebookContent() {
         await addAbsent({ variables: { user_id: selectedUser.id, date: dateTimeStr, type: type, reason: notes || (selectedNoteType === 'present' ? 'Présent (Manuel)' : `${price} jours`) } });
       } else if (selectedNoteType === 'infraction' || selectedNoteType === 'extra' || selectedNoteType === 'prime') {
         let amt = parseFloat(price || "0");
-        // if (selectedNoteType === 'infraction') amt = -Math.abs(amt); // Keep positive if recompute handles it or user prefers
-
         let label = "Extra";
         if (selectedNoteType === 'infraction') label = "Infraction";
         if (selectedNoteType === 'prime') label = "Prime";
@@ -389,7 +394,12 @@ function NotebookContent() {
         });
       }
       setDialogOpen(false);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de l'enregistrement");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   const handleDeleteEntry = async (entry: NotebookEntry) => {
@@ -542,7 +552,7 @@ function NotebookContent() {
 
         {/* DIALOG */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="bg-white border-[#c9b896] text-[#3d2c1e] max-w-lg rounded-[2rem] p-8">
+          <DialogContent className="bg-white border-[#c9b896] text-[#3d2c1e] max-w-[95vw] sm:max-w-lg rounded-[1.5rem] sm:rounded-[2rem] p-4 sm:p-8 overflow-y-auto max-h-[90vh]">
             <DialogHeader>
               <DialogTitle className="text-2xl font-black text-[#8b5a2b] flex items-center gap-3">
                 <BookOpen className="h-8 w-8" />
@@ -591,13 +601,19 @@ function NotebookContent() {
                 </button>
               </div>
             ) : step === 1 ? (
-              <div className="space-y-6 mt-6">
-                <Button variant="ghost" onClick={() => setStep(0)} className="text-[#8b5a2b] font-black uppercase text-xs gap-2"><ArrowLeft className="h-4 w-4" /> Retour</Button>
-                <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-4 mt-4">
+                <Button
+                  variant="ghost"
+                  onClick={() => setStep(0)}
+                  className="text-[#8b5a2b] font-black uppercase text-[10px] tracking-widest gap-2 h-8 px-0 hover:bg-transparent"
+                >
+                  <ArrowLeft className="h-4 w-4" /> Retour
+                </Button>
+                <div className="grid grid-cols-2 gap-3 sm:gap-4">
                   {noteTypes.map(({ type, label, icon: Icon, color, bgColor }) => (
-                    <button key={type} onClick={() => handleNoteTypeClick(type)} className={cn("flex flex-col items-center gap-3 p-6 rounded-2xl border-2 transition-all hover:scale-105 active:scale-95", bgColor)}>
-                      <Icon className={cn("h-8 w-8", color)} />
-                      <span className={cn("text-xs font-black uppercase tracking-tighter", color)}>{label}</span>
+                    <button key={type} onClick={() => handleNoteTypeClick(type)} className={cn("flex flex-col items-center justify-center gap-2 sm:gap-3 p-4 sm:p-6 rounded-2xl border-2 transition-all hover:scale-[1.02] active:scale-95 shadow-sm", bgColor)}>
+                      <Icon className={cn("h-6 w-6 sm:h-8 sm:w-8", color)} />
+                      <span className={cn("text-[9px] sm:text-xs font-black uppercase tracking-tight text-center leading-tight", color)}>{label}</span>
                     </button>
                   ))}
                 </div>
@@ -753,19 +769,30 @@ function NotebookContent() {
                               >Annuler</Button>
                               <Button
                                 className="h-11 px-8 rounded-2xl bg-[#8b5a2b] hover:bg-[#6b4521] text-white font-black uppercase text-[10px] tracking-widest shadow-xl shadow-[#8b5a2b]/20 flex items-center gap-2"
+                                disabled={isSaving}
                                 onClick={async () => {
-                                  const rawId = entry.id.split('-')[1];
-                                  if (entry.type === 'retard') {
-                                    await updateRetardMutation({ variables: { id: rawId, reason: editForm.notes } });
-                                  } else if (entry.type === 'extra' || entry.type === 'infraction' || entry.type === 'prime') {
-                                    await updateExtraMutation({ variables: { id: rawId, montant: parseFloat(editForm.price), motif: editForm.notes || entry.type } });
-                                  } else if (entry.type.startsWith('absent') || entry.type === 'mise_a_pied' || entry.type === 'present') {
-                                    let finalPrice = (entry.type === 'mise_a_pied' || entry.type === 'present') ? (editForm.price.includes('jour') ? editForm.price : `${editForm.price} jours`) : editForm.notes;
-                                    await updateAbsentMutation({ variables: { id: rawId, type: editForm.type, reason: finalPrice } });
+                                  if (isSaving) return;
+                                  setIsSaving(true);
+                                  try {
+                                    const rawId = entry.id.split('-')[1];
+                                    if (entry.type === 'retard') {
+                                      await updateRetardMutation({ variables: { id: rawId, reason: editForm.notes } });
+                                    } else if (entry.type === 'extra' || entry.type === 'infraction' || entry.type === 'prime') {
+                                      await updateExtraMutation({ variables: { id: rawId, montant: parseFloat(editForm.price), motif: editForm.notes || entry.type } });
+                                    } else if (entry.type.startsWith('absent') || entry.type === 'mise_a_pied' || entry.type === 'present') {
+                                      let finalPrice = (entry.type === 'mise_a_pied' || entry.type === 'present') ? (editForm.price.includes('jour') ? editForm.price : `${editForm.price} jours`) : editForm.notes;
+                                      await updateAbsentMutation({ variables: { id: rawId, type: editForm.type, reason: finalPrice } });
+                                    }
+                                  } catch (e) {
+                                    console.error(e);
+                                    alert("Erreur lors de la mise à jour");
+                                  } finally {
+                                    setIsSaving(false);
                                   }
                                 }}
                               >
-                                <Save className="h-4 w-4" /> Enregistrer
+                                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                {isSaving ? "Enregistrement..." : "Enregistrer"}
                               </Button>
                             </div>
                           </div>
@@ -817,7 +844,14 @@ function NotebookContent() {
                   </div>
                 </div>
                 <div className="space-y-2"><Label className="font-bold text-[#8b5a2b]">Notes</Label><Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Raisons, détails..." className="h-14 rounded-xl" /></div>
-                <Button onClick={handleSave} className="w-full h-16 bg-[#8b5a2b] hover:bg-[#6b4521] text-white rounded-2xl text-xl font-black shadow-xl tracking-widest uppercase">Enregistrer</Button>
+                <Button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="w-full h-16 bg-[#8b5a2b] hover:bg-[#6b4521] text-white rounded-2xl text-xl font-black shadow-xl tracking-widest uppercase flex items-center justify-center gap-3"
+                >
+                  {isSaving ? <Loader2 className="h-6 w-6 animate-spin" /> : null}
+                  {isSaving ? "Enregistrement..." : "Enregistrer"}
+                </Button>
               </div>
             )}
           </DialogContent>

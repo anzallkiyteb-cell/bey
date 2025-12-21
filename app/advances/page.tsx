@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DollarSign, TrendingUp, AlertCircle, Plus, CheckCircle, XCircle, Trash2, Calendar as CalendarIcon } from "lucide-react"
-import { useState, Suspense, useMemo } from "react"
+import { useState, Suspense, useMemo, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -30,7 +30,9 @@ const GET_DATA = gql`
         departement
         base_salary
         photo
+        zktime_id
         is_blocked
+        status
       }
     }
     getAdvances {
@@ -96,6 +98,33 @@ function AdvancesContent() {
   const filterParam = searchParams.get("filter")
 
   const { data, loading, error } = useQuery(GET_DATA, { fetchPolicy: "cache-and-network" });
+  const userIdParam = searchParams.get("userId");
+
+  // Handle auto-scroll to user from notification
+  useEffect(() => {
+    if (!userIdParam || !data?.getAdvances || data.getAdvances.length === 0) return;
+
+    // 1. Clear filters
+    if (searchTerm) setSearchTerm("");
+    if (selectedDate) setSelectedDate(undefined);
+
+    // 2. Poll for the row to scroll to
+    let attempts = 0;
+    const interval = setInterval(() => {
+      const element = document.getElementById(`advance-row-${userIdParam}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element.classList.add('bg-[#8b5a2b]/30', 'ring-8', 'ring-[#8b5a2b]/20', 'transition-all', 'duration-500', 'z-20', 'relative');
+        setTimeout(() => {
+          element.classList.remove('bg-[#8b5a2b]/30', 'ring-8', 'ring-[#8b5a2b]/20');
+        }, 5000);
+        clearInterval(interval);
+      }
+      if (attempts++ > 20) clearInterval(interval);
+    }, 200);
+
+    return () => clearInterval(interval);
+  }, [userIdParam, data?.getAdvances]);
 
   const [addAdvance] = useMutation(ADD_ADVANCE, {
     update(cache, { data: { addAdvance } }) {
@@ -505,7 +534,7 @@ function AdvancesContent() {
                       const employee = users.find((u: any) => u.id === advance.user_id) || { name: advance.username || 'Inconnu', departement: '' };
 
                       return (
-                        <tr key={advance.id} className="border-b border-[#c9b896]/50 hover:bg-[#f8f6f1]/50 transition-colors">
+                        <tr key={advance.id} id={`advance-row-${advance.user_id}`} className="border-b border-[#c9b896]/50 hover:bg-[#f8f6f1]/50 transition-colors">
                           <td className="p-4 sm:p-5">
                             <div
                               className="flex items-center gap-3 cursor-pointer group"

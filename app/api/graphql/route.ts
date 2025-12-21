@@ -239,6 +239,7 @@ const typeDefs = `#graphql
     updateLoginAccount(id: ID!, username: String, password: String, role: String, permissions: String): User
     deleteLoginAccount(id: ID!): Boolean
     markNotificationsAsRead(userId: ID!): Boolean
+    markNotificationAsRead(id: ID!): Boolean
     deleteOldNotifications: Boolean
   }
 `;
@@ -290,6 +291,8 @@ const setCache = (key: string, data: any, ttl: number = 30000) => {
   });
 };
 
+const lastSyncThrottle = new Map<string, number>();
+
 // Internal helper to invalidate backend cache
 const invalidateCache = () => {
   (global as any)._statusCache = {};
@@ -324,15 +327,16 @@ const ensureNotificationsTable = async () => {
         type VARCHAR(50) NOT NULL,
         title VARCHAR(255) NOT NULL,
         message TEXT NOT NULL,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         read BOOLEAN DEFAULT FALSE,
         user_id INT,
-        user_done VARCHAR(255)
+        user_done VARCHAR(255),
+        url TEXT
       )
     `);
-    // Ensure user_done column exists if table was already created
+    // Ensure columns exist
     try {
       await pool.query('ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS user_done VARCHAR(255)');
+      await pool.query('ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS url TEXT');
     } catch (e) { }
     // Performance indexes
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id)`);
@@ -344,12 +348,12 @@ const ensureNotificationsTable = async () => {
 };
 
 // Internal helper to create notifications
-const createNotification = async (type: string, title: string, message: string, userId: string | null = null, userDone: string | null = null) => {
+const createNotification = async (type: string, title: string, message: string, userId: string | null = null, userDone: string | null = null, url: string | null = null) => {
   try {
     await ensureNotificationsTable();
     await pool.query(
-      `INSERT INTO public.notifications (type, title, message, user_id, user_done) VALUES ($1, $2, $3, $4, $5)`,
-      [type, title, message, userId, userDone]
+      `INSERT INTO public.notifications (type, title, message, user_id, user_done, url) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [type, title, message, userId, userDone, url]
     );
   } catch (e) {
     console.error("Notification Error:", e);
@@ -730,7 +734,8 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
         // Use the Set instead of a query
         const exists = Array.from(notificationMessages).some((m: string) => m.includes(msgKey));
         if (!exists) {
-          await createNotification('pointage', `Pointage ${type}`, `${user.username} a pointé son ${type} à ${formatTime(pTimeStr)}. [REF:${msgKey}]`, null, "Machine ZKTeco");
+          const finalUid = user.id || user.user_id;
+          await createNotification('pointage', `Pointage ${type}`, `${user.username} a pointé son ${type} à ${formatTime(pTimeStr)}. [REF:${msgKey}]`, finalUid, "Machine ZKTeco", `/attendance?userId=${finalUid}&date=${dateSQL}`);
           notificationMessages.add(`[REF:${msgKey}]`); // Add to local set to avoid duplicates in same run
         }
       }
@@ -965,6 +970,7 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       [finalPresent, totalAdvance, dayExtra, dayPrime, dayInfraction, dayDoublage, miseAPiedDays, retardMins, finalRemark, user.id, dateSQL, user.username]
     );
   }));
+  invalidateCache();
 }
 
 const resolvers = {
@@ -1131,7 +1137,7 @@ const resolvers = {
     getNotifications: async (_: any, { userId, limit }: { userId?: string, limit?: number }) => {
       try {
         await ensureNotificationsTable();
-        let q = 'SELECT id, type, title, message, timestamp, read, user_id, user_done as "userDone", NULL as url FROM public.notifications';
+        let q = 'SELECT id, type, title, message, timestamp, read, user_id, user_done as "userDone", url FROM public.notifications';
         const params = [];
         if (userId) {
           q += ' WHERE user_id = $1 OR user_id IS NULL';
@@ -1144,8 +1150,25 @@ const resolvers = {
           q += ` LIMIT 50`;
         }
         const res = await pool.query(q, params);
-        return res.rows.map((r: any) => ({ ...r, timestamp: r.timestamp.toISOString() }));
+        return res.rows.map((r: any) => {
+          let url = r.url;
+          // Robust Fallback for old notifications
+          if (!url) {
+            if (r.type === 'pointage') url = `/attendance?userId=${r.user_id || ''}`;
+            else if (r.type === 'system' || r.type === 'schedule') url = `/employees?userId=${r.user_id || ''}`;
+            else if (r.type === 'avance') url = `/advances?userId=${r.user_id || ''}`;
+            else if (r.type === 'payment') url = `/payroll`;
+            else url = '/';
+          }
+          return {
+            ...r,
+            url,
+            user_id: r.user_id,
+            timestamp: r.timestamp.toISOString()
+          };
+        });
       } catch (e) {
+        console.error("Fetch Notif Error:", e);
         return [];
       }
     },
@@ -1245,7 +1268,7 @@ const resolvers = {
         const monthDateFilter = `${year}-${monthNum}`; // 'YYYY-MM'
 
         const [resAdvances, resExtras, resAbsents, resRetards, resDoublages] = await Promise.all([
-          pool.query(`SELECT * FROM public.avances WHERE month = $1 ${userId ? `AND user_id = $2` : ''}`, userId ? [month, userId] : [month]),
+          pool.query(`SELECT * FROM public.avances WHERE TO_CHAR(date::date, 'YYYY_MM') = $1 ${userId ? `AND user_id = $2` : ''}`, userId ? [month, userId] : [month]),
           pool.query(`SELECT * FROM public.extras WHERE TO_CHAR(date_extra, 'YYYY_MM') = $1 ${userId ? `AND user_id = $2` : ''}`, userId ? [month, userId] : [month]),
           pool.query(`SELECT * FROM public.absents WHERE TO_CHAR(date, 'YYYY_MM') = $1 ${userId ? `AND user_id = $2` : ''}`, userId ? [month, userId] : [month]),
           pool.query(`SELECT * FROM public.retards WHERE TO_CHAR(date, 'YYYY_MM') = $1 ${userId ? `AND user_id = $2` : ''}`, userId ? [month, userId] : [month]),
@@ -1666,7 +1689,7 @@ const resolvers = {
         [username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false]
       );
       const newUser = res.rows[0];
-      await createNotification('system', "Action Administrative: Nouvel Employé", `L'employé ${newUser.username} a été ajouté au système.`, newUser.id, context.userDone);
+      await createNotification('system', "Action Administrative: Nouvel Employé", `L'employé ${newUser.username} a été ajouté au système.`, newUser.id, context.userDone, `/employees?userId=${newUser.id}`);
       return { ...newUser, is_blocked: !!newUser.is_blocked };
     },
     updateUser: async (_: any, { id, input }: { id: string, input: any }, context: any) => {
@@ -1684,7 +1707,7 @@ const resolvers = {
         [id, username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false]
       );
       const updatedUser = res.rows[0];
-      await createNotification('system', "Action Administrative: Profil Mis à Jour", `Le profil de ${updatedUser.username} a été mis à jour par un administrateur.`, updatedUser.id, context.userDone);
+      await createNotification('system', "Action Administrative: Profil Mis à Jour", `Le profil de ${updatedUser.username} a été mis à jour par un administrateur.`, updatedUser.id, context.userDone, `/employees?userId=${updatedUser.id}`);
       return { ...updatedUser, is_blocked: !!updatedUser.is_blocked };
     },
     toggleUserBlock: async (_: any, { userId, isBlocked }: { userId: string, isBlocked: boolean }, context: any) => {
@@ -1880,7 +1903,7 @@ const resolvers = {
       );
 
       await recomputePayrollForDate(dateStr, user_id);
-      await createNotification('avance', "Nouvelle avance enregistrée", `${username} a reçu une avance de ${montant} TND.`, user_id, context.userDone);
+      await createNotification('avance', "Nouvelle avance enregistrée", `${username} a reçu une avance de ${montant} TND.`, user_id, context.userDone, `/advances?userId=${user_id}`);
 
       return {
         ...res.rows[0],
@@ -1932,7 +1955,7 @@ const resolvers = {
       await recomputePayrollForDate(formatDateLocal(row.date) as string, row.user_id);
 
       if (statut === 'Validé' || statut === 'Payé') {
-        await createNotification('avance', "Avance approuvée", `L'avance de ${row.montant} TND for ${row.username} a été ${statut.toLowerCase()}.`, row.user_id, context.userDone);
+        await createNotification('avance', "Avance approuvée", `L'avance de ${row.montant} TND for ${row.username} a été ${statut.toLowerCase()}.`, row.user_id, context.userDone, `/advances?userId=${row.user_id}`);
       }
 
       return {
@@ -1959,7 +1982,7 @@ const resolvers = {
 
       const res = await pool.query(`INSERT INTO public.retards(user_id, username, date, reason) VALUES($1, $2, $3, $4) RETURNING *`, [user_id, username, date, reason]);
       await recomputePayrollForDate(formatDateLocal(date) as string, user_id);
-      await createNotification('pointage', "Action Administrative: Retard Enregistré", `${username} a été marqué en retard le ${formatDateLocal(date)}: ${reason}`, user_id, context.userDone);
+      await createNotification('pointage', "Action Administrative: Retard Enregistré", `${username} a été marqué en retard le ${formatDateLocal(date)}: ${reason}`, user_id, context.userDone, `/attendance?userId=${user_id}&date=${date}`);
       return { ...res.rows[0], date: formatDateLocal(res.rows[0].date) };
     },
     deleteRetard: async (_: any, { id }: { id: string }, context: any) => {
@@ -1989,7 +2012,7 @@ const resolvers = {
 
       const res = await pool.query(`INSERT INTO public.absents(user_id, username, date, type, reason) VALUES($1, $2, $3, $4, $5) RETURNING *`, [user_id, username, date, type, reason]);
       await recomputePayrollForDate(formatDateLocal(date) as string, user_id);
-      await createNotification('pointage', "Action Administrative: Absence Enregistrée", `${username} a été marqué absent (${type}) le ${formatDateLocal(date)}.`, user_id, context.userDone);
+      await createNotification('pointage', "Action Administrative: Absence Enregistrée", `${username} a été marqué absent (${type}) le ${formatDateLocal(date)}.`, user_id, context.userDone, `/attendance?userId=${user_id}&date=${date}`);
       return { ...res.rows[0], date: formatDateLocal(res.rows[0].date) };
     },
     deleteAbsent: async (_: any, { id }: { id: string }, context: any) => {
@@ -2027,7 +2050,7 @@ const resolvers = {
 
       const res = await pool.query(`INSERT INTO public.extras(user_id, username, montant, date_extra, motif) VALUES($1, $2, $3, $4, $5) RETURNING *`, [user_id, username, montant, date_extra, motif]);
       await recomputePayrollForDate(formatDateLocal(date_extra) as string, String(user_id));
-      await createNotification('payment', "Nouveau paiement (Extra)", `${username} a reçu un extra de ${montant} TND pour: ${motif || 'Non spécifié'}`, user_id, context.userDone);
+      await createNotification('payment', "Nouveau paiement (Extra)", `${username} a reçu un extra de ${montant} TND pour: ${motif || 'Non spécifié'}`, user_id, context.userDone, `/payroll?userId=${user_id}`);
       return { ...res.rows[0], montant: parseFloat(res.rows[0].montant || 0), date_extra: formatDateTimeLocal(res.rows[0].date_extra) };
     },
     deleteExtra: async (_: any, { id }: { id: string }, context: any) => {
@@ -2073,7 +2096,7 @@ const resolvers = {
 
       const res = await pool.query(`INSERT INTO public.doublages(user_id, username, montant, date) VALUES($1, $2, $3, $4) RETURNING *`, [user_id, username, montant, date]);
       await recomputePayrollForDate(formatDateLocal(date) as string, String(user_id));
-      await createNotification('payment', "Nouveau paiement (Doublage)", `${username} a reçu un doublage de ${montant} TND.`, user_id);
+      await createNotification('payment', "Nouveau paiement (Doublage)", `${username} a reçu un doublage de ${montant} TND.`, user_id, null, `/payroll?userId=${user_id}`);
       return { ...res.rows[0], montant: parseFloat(res.rows[0].montant || 0), date: formatDateTimeLocal(res.rows[0].date) };
     },
     deleteDoublage: async (_: any, { id }: { id: string }) => {
@@ -2129,8 +2152,8 @@ const resolvers = {
         else if (key === 'id') continue; // Don't update ID field
         else params.push(val);
       }
-      await pool.query(`UPDATE public."${tableName}" SET ${updates.join(', ')} WHERE id = $1`, params);
-      await createNotification('system', "Mise à jour Fiche de Paie", `La fiche de paie de ${username} pour le ${dateSQL} a été mise à jour par un manageur.`, user_id);
+      const payrollUrl = dateSQL ? `/payroll/fiche/${user_id}?month=${dateSQL.substring(0, 7).replace('-', '_')}` : `/payroll/fiche/${user_id}`;
+      await createNotification('system', "Mise à jour Fiche de Paie", `La fiche de paie de ${username} pour le ${dateSQL} a été mise à jour par un manageur.`, user_id, null, payrollUrl);
 
       // 5. Sync back to master tables based on input (persists the manual overrides)
 
@@ -2275,9 +2298,14 @@ const resolvers = {
       }
 
       const todayStr = date || formatDateLocal(new Date()) as string;
+      const nowTs = Date.now();
+      const lastSync = lastSyncThrottle.get(todayStr);
+      if (lastSync && nowTs - lastSync < 60000) { // Throttle: 1 minute
+        return true;
+      }
+      lastSyncThrottle.set(todayStr, nowTs);
 
       // Only sync Today and Yesterday for performance.
-      // Historical data is stable and doesn't need constant recomputation on every page load.
       const daysToSync = 2;
       const syncPromises = [];
       const baseDate = new Date(todayStr + 'T12:00:00');
@@ -2294,6 +2322,10 @@ const resolvers = {
     },
     markNotificationsAsRead: async (_: any, { userId }: { userId: string }) => {
       await pool.query('UPDATE public.notifications SET read = TRUE WHERE user_id = $1 OR user_id IS NULL', [userId]);
+      return true;
+    },
+    markNotificationAsRead: async (_: any, { id }: { id: string }) => {
+      await pool.query('UPDATE public.notifications SET read = TRUE WHERE id = $1', [id]);
       return true;
     },
     deleteOldNotifications: async () => {
