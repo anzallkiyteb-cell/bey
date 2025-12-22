@@ -659,6 +659,7 @@ async function initializePayrollTable(month: string) {
 }
 
 async function recomputePayrollForDate(targetDateStr: string, specificUserId: string | null = null) {
+  invalidateCache();
   const todayNow = new Date();
   const targetDate = targetDateStr ? new Date(targetDateStr + 'T12:00:00') : new Date();
   const logicalDay = getLogicalDate(targetDate);
@@ -1018,21 +1019,24 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       return; // Don't overwrite manually updated records from past days
     }
 
+    // Even if it's the current day, if it's manually updated, we should be careful.
+    // However, for the current day, we prioritize live data from ZK machine.
+
     await pool.query(
       `INSERT INTO public.\"${payrollTableName}\"(user_id, username, date, present, acompte, extra, prime, infraction, doublage, mise_a_pied, retard, remarque, clock_in, clock_out, updated)
         VALUES($10, $12, $11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, FALSE)
          ON CONFLICT(user_id, date) DO UPDATE SET
-        present = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".present ELSE EXCLUDED.present END,
-          acompte = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".acompte ELSE EXCLUDED.acompte END,
-          extra = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".extra ELSE EXCLUDED.extra END,
-          prime = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".prime ELSE EXCLUDED.prime END,
-          infraction = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".infraction ELSE EXCLUDED.infraction END,
-          doublage = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".doublage ELSE EXCLUDED.doublage END,
-          mise_a_pied = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".mise_a_pied ELSE EXCLUDED.mise_a_pied END,
-          retard = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".retard ELSE EXCLUDED.retard END,
-          remarque = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".remarque ELSE EXCLUDED.remarque END,
-          clock_in = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".clock_in ELSE EXCLUDED.clock_in END,
-          clock_out = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".clock_out ELSE EXCLUDED.clock_out END`,
+        present = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".present ELSE EXCLUDED.present END,
+          acompte = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".acompte ELSE EXCLUDED.acompte END,
+          extra = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".extra ELSE EXCLUDED.extra END,
+          prime = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".prime ELSE EXCLUDED.prime END,
+          infraction = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".infraction ELSE EXCLUDED.infraction END,
+          doublage = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".doublage ELSE EXCLUDED.doublage END,
+          mise_a_pied = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".mise_a_pied ELSE EXCLUDED.mise_a_pied END,
+          retard = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".retard ELSE EXCLUDED.retard END,
+          remarque = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".remarque ELSE EXCLUDED.remarque END,
+          clock_in = EXCLUDED.clock_in,
+          clock_out = EXCLUDED.clock_out`,
       [finalPresent, totalAdvance, dayExtra, dayPrime, dayInfraction, dayDoublage, miseAPiedDays, retardMins, finalRemark, user.id, dateSQL, user.username, clockIn, clockOut]
     );
   }));
@@ -1406,73 +1410,69 @@ const resolvers = {
             else totalExtra += parseFloat(e.montant || 0);
           });
 
-          // Real-time Absence/Retard overlay
-          const dayAbsent = absents.find((a: any) => (String(a.user_id) === String(r.user_id)) && (formatDateLocal(a.date) === dateStr));
-          const dayRetard = retards.find((ret: any) => (String(ret.user_id) === String(r.user_id)) && (formatDateLocal(ret.date) === dateStr));
-
+          // Build final values - prioritize manual updates
           let finalPresent = r.present;
           let finalRemark = r.remarque;
           let finalRetard = r.retard;
           let finalInfraction = r.infraction || 0;
+          let finalMiseAPied = r.mise_a_pied || 0;
 
-          // If there's an entry in absents table, handle it
-          if (dayAbsent) {
-            const t = (dayAbsent.type || "").toLowerCase().trim();
-            const isPresentType = t === "présent" || t === "present" || t === "justifié" || t === "justifie";
-            const isAbsentType = ['absence', 'absent', 'injustifié', 'injustifie', 'non justifié', 'non justifie', 'mise à pied', 'mise a pied', 'injustice'].includes(t);
-
-            if (dayAbsent.reason === "Pointage de sortie manquant") {
-              finalPresent = 0;
-              finalRemark = "Pointage de sortie manquant";
-            } else if (isPresentType) {
-              finalPresent = 1;
-              finalRemark = dayAbsent.reason || "Présent";
-            } else if (isAbsentType) {
-              finalPresent = 0;
-              finalRemark = dayAbsent.reason || "ABSENT";
-            } else {
-              // Default to database value if type is unknown but record exists
-              finalPresent = r.present;
-              finalRemark = dayAbsent.reason || r.remarque;
-            }
+          if (r.updated) {
+            // If manually updated, we trust the database record as the final word.
+            // No overlays for these primary fields.
           } else {
-            // If not marked absent, we might have a retard
-            if (dayRetard) {
+            // Real-time Absence/Retard overlay - only for auto records
+            const dayAbsent = absents.find((a: any) => (String(a.user_id) === String(r.user_id)) && (formatDateLocal(a.date) === dateStr));
+            const dayRetard = retards.find((ret: any) => (String(ret.user_id) === String(r.user_id)) && (formatDateLocal(ret.date) === dateStr));
+
+            if (dayAbsent) {
+              const t = (dayAbsent.type || "").toLowerCase().trim();
+              const isPresentType = t === "présent" || t === "present" || t === "justifié" || t === "justifie";
+              const isAbsentType = ['absence', 'absent', 'injustifié', 'injustifie', 'non justifié', 'non justifie', 'mise à pied', 'mise a pied', 'injustice'].includes(t);
+
+              if (dayAbsent.reason === "Pointage de sortie manquant") {
+                finalPresent = 0;
+                finalRemark = "Pointage de sortie manquant";
+              } else if (isPresentType) {
+                finalPresent = 1;
+                finalRemark = dayAbsent.reason || "Présent";
+              } else if (isAbsentType) {
+                finalPresent = 0;
+                finalRemark = dayAbsent.reason || "ABSENT";
+              } else {
+                finalPresent = r.present;
+                finalRemark = dayAbsent.reason || r.remarque;
+              }
+            } else if (dayRetard) {
               const match = dayRetard.reason?.match(/(\d+)\s*min/);
               finalRetard = match ? parseInt(match[1]) : r.retard;
               finalRemark = dayRetard.reason;
-              // Only add 30 if it hasn't been added yet (detecting mismatch between DB and real-time calc)
               if (finalRetard > 10 && finalInfraction < 30) finalInfraction += 30;
             } else if (r.present === 1 && !r.remarque) {
               finalRemark = null;
             }
-          }
 
-          // Mise à pied overlay
-          let finalMiseAPied = r.mise_a_pied || 0;
-          if (dayAbsent && dayAbsent.type === 'Mise à pied') {
-            const match = dayAbsent.reason?.match(/(\d+(\.\d+)?)\s*jour/i);
-            finalMiseAPied = match ? parseFloat(match[1]) : 1;
-          }
+            // Mise à pied overlay
+            if (dayAbsent && dayAbsent.type === 'Mise à pied') {
+              const match = dayAbsent.reason?.match(/(\d+(\.\d+)?)\s*jour/i);
+              finalMiseAPied = match ? parseFloat(match[1]) : 1;
+            }
 
-          // Build final remark by combining parts and deduplicating
-          let remarkParts: string[] = [];
-          if (finalRemark) {
-            remarkParts = finalRemark.split(' | ').map((s: string) => s.trim()).filter(Boolean);
-          }
-
-          if (dayExtras.length > 0) {
-            dayExtras.forEach((e: any) => {
-              if (e.motif) {
-                const motif = e.motif.trim();
-                if (!remarkParts.includes(motif)) {
-                  remarkParts.push(motif);
+            // Append Extras/Primes to remark for auto records only
+            let remarkParts: string[] = [];
+            if (finalRemark) {
+              remarkParts = finalRemark.split(' | ').map((s: string) => s.trim()).filter(Boolean);
+            }
+            if (dayExtras.length > 0) {
+              dayExtras.forEach((e: any) => {
+                if (e.motif) {
+                  const motif = e.motif.trim();
+                  if (!remarkParts.includes(motif)) remarkParts.push(motif);
                 }
-              }
-            });
+              });
+            }
+            finalRemark = remarkParts.length > 0 ? remarkParts.join(' | ') : null;
           }
-
-          finalRemark = remarkParts.length > 0 ? remarkParts.join(' | ') : null;
 
           const dayDoublages = doublages.filter((d: any) =>
             (String(d.user_id) === String(r.user_id)) &&
@@ -2079,7 +2079,15 @@ const resolvers = {
       const username = userRes.rows[0].username;
 
       const res = await pool.query(`INSERT INTO public.retards(user_id, username, date, reason) VALUES($1, $2, $3, $4) RETURNING *`, [user_id, username, date, reason]);
-      await recomputePayrollForDate(formatDateLocal(date) as string, user_id);
+
+      const dateSQL = formatDateLocal(date);
+      const monthKey = dateSQL?.substring(0, 7).replace('-', '_');
+      try {
+        await pool.query(`UPDATE public."paiecurrent_${monthKey}" SET updated = FALSE WHERE user_id = $1 AND date = $2`, [user_id, dateSQL]);
+      } catch (e) { }
+
+      await recomputePayrollForDate(dateSQL as string, user_id);
+      invalidateCache();
       await createNotification('pointage', "Action Administrative: Retard Enregistré", `${username} a été marqué en retard le ${formatDateLocal(date)}: ${reason}`, user_id, context.userDone, `/attendance?userId=${user_id}&date=${date}`);
       return { ...res.rows[0], date: formatDateLocal(res.rows[0].date) };
     },
@@ -2088,7 +2096,16 @@ const resolvers = {
       if (info.rows.length === 0) return false;
       const { user_id, date } = info.rows[0];
       const res = await pool.query('DELETE FROM public.retards WHERE id = $1', [id]);
-      await recomputePayrollForDate(formatDateLocal(date) as string, user_id);
+
+      const dateSQL = formatDateLocal(date);
+      const monthKey = dateSQL?.substring(0, 7).replace('-', '_');
+      try {
+        await pool.query(`UPDATE public."paiecurrent_${monthKey}" SET updated = FALSE WHERE user_id = $1 AND date = $2`, [user_id, dateSQL]);
+      } catch (e) { }
+
+      await recomputePayrollForDate(dateSQL as string, user_id);
+      invalidateCache();
+
       const userRes = await pool.query('SELECT username FROM public.users WHERE id = $1', [user_id]);
       await createNotification('system', "Retard Supprimé", `Le retard de ${userRes.rows[0]?.username || 'Inconnu'} pour le ${formatDateLocal(date)} a été supprimé.`, user_id, context.userDone);
       return (res.rowCount || 0) > 0;
@@ -2109,7 +2126,15 @@ const resolvers = {
       const username = userRes.rows[0].username;
 
       const res = await pool.query(`INSERT INTO public.absents(user_id, username, date, type, reason) VALUES($1, $2, $3, $4, $5) RETURNING *`, [user_id, username, date, type, reason]);
-      await recomputePayrollForDate(formatDateLocal(date) as string, user_id);
+
+      const dateSQL = formatDateLocal(date);
+      const monthKey = dateSQL?.substring(0, 7).replace('-', '_');
+      try {
+        await pool.query(`UPDATE public."paiecurrent_${monthKey}" SET updated = FALSE WHERE user_id = $1 AND date = $2`, [user_id, dateSQL]);
+      } catch (e) { }
+
+      await recomputePayrollForDate(dateSQL as string, user_id);
+      invalidateCache();
       await createNotification('pointage', "Action Administrative: Absence Enregistrée", `${username} a été marqué absent (${type}) le ${formatDateLocal(date)}.`, user_id, context.userDone, `/attendance?userId=${user_id}&date=${date}`);
       return { ...res.rows[0], date: formatDateLocal(res.rows[0].date) };
     },
@@ -2118,7 +2143,16 @@ const resolvers = {
       if (info.rows.length === 0) return false;
       const { user_id, date } = info.rows[0];
       const res = await pool.query('DELETE FROM public.absents WHERE id = $1', [id]);
-      await recomputePayrollForDate(formatDateLocal(date) as string, user_id);
+
+      const dateSQL = formatDateLocal(date);
+      const monthKey = dateSQL?.substring(0, 7).replace('-', '_');
+      try {
+        await pool.query(`UPDATE public."paiecurrent_${monthKey}" SET updated = FALSE WHERE user_id = $1 AND date = $2`, [user_id, dateSQL]);
+      } catch (e) { }
+
+      await recomputePayrollForDate(dateSQL as string, user_id);
+      invalidateCache();
+
       const userRes = await pool.query('SELECT username FROM public.users WHERE id = $1', [user_id]);
       await createNotification('system', "Absence Supprimée", `L'absence de ${userRes.rows[0]?.username || 'Inconnu'} pour le ${formatDateLocal(date)} a été supprimée.`, user_id, context.userDone);
       return (res.rowCount || 0) > 0;
@@ -2282,22 +2316,19 @@ const resolvers = {
       // RETARDS Sync
       if (input.retard !== undefined) {
         const check = await pool.query('SELECT id FROM public.retards WHERE user_id = $1 AND date::date = $2::date', [user_id, dateSQL]);
-        // Treat 0 as a valid value to persist (Force Clear), don't delete.
-        // Only delete if we needed a way to "Reset to Auto", but "0" usually means "Forgiven".
-        // To Reset to Auto, user probably needs a different mechanism, or deleting 0 here is wrong if Auto is > 0.
-        // Given user complaint, they want to FORCE 0.
         if (input.retard >= 0) {
-          const reason = `${input.retard} min`;
+          // Use provided remark as reason if available, otherwise use "X min"
+          const reason = input.remarque || `${input.retard} min`;
           if (check.rows.length > 0) {
-            // Update the first one
             await pool.query('UPDATE public.retards SET reason = $1 WHERE id = $2', [reason, check.rows[0].id]);
-            // Delete duplicates
             for (let k = 1; k < check.rows.length; k++) {
               await pool.query('DELETE FROM public.retards WHERE id = $1', [check.rows[k].id]);
             }
           } else {
             await pool.query('INSERT INTO public.retards(user_id, username, date, reason) VALUES($1, $2, $3, $4)', [user_id, username, dateSQL, reason]);
           }
+        } else if (check.rows.length > 0) {
+          await pool.query('DELETE FROM public.retards WHERE user_id = $1 AND date::date = $2::date', [user_id, dateSQL]);
         }
       }
 

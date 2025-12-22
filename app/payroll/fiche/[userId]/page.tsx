@@ -217,46 +217,7 @@ export default function UserFichePage() {
     }
 
     const handleFieldChange = (field: string, value: any) => {
-        let newEditForm = { ...editForm, [field]: value };
-
-        // Auto-Remarque Logic
-        if (field === 'present') {
-            if (value === 1 && (!editForm.remarque || editForm.remarque === "ABSENT" || editForm.remarque === "Absence injustifiée")) {
-                newEditForm.remarque = "Présence manuelle";
-            } else if (value === 0 && (!editForm.remarque || editForm.remarque === "Présence manuelle" || editForm.remarque === "Présent")) {
-                newEditForm.remarque = "Absence injustifiée";
-            }
-        }
-
-        if (field === 'retard' && parseInt(value) > 0 && !newEditForm.remarque) {
-            newEditForm.remarque = `Retard de ${value} min`;
-        }
-
-        if (field === 'mise_a_pied' && parseFloat(value) > 0 && (!newEditForm.remarque || newEditForm.remarque === "Absence injustifiée")) {
-            newEditForm.remarque = `Mise à pied (${value} jours)`;
-        }
-
-        if (field === 'prime' && parseFloat(value) > 0 && !newEditForm.remarque) {
-            newEditForm.remarque = "Prime";
-        }
-
-        if (field === 'infraction' && parseFloat(value) > 0 && !newEditForm.remarque) {
-            newEditForm.remarque = "Infraction / Sanction";
-        }
-
-        if (field === 'extra' && parseFloat(value) > 0 && !newEditForm.remarque) {
-            newEditForm.remarque = "Extra";
-        }
-
-        if (field === 'doublage' && parseFloat(value) > 0 && !newEditForm.remarque) {
-            newEditForm.remarque = "Doublage";
-        }
-
-        if (field === 'acompte' && parseFloat(value) > 0 && !newEditForm.remarque) {
-            newEditForm.remarque = "Avance sur salaire";
-        }
-
-        setEditForm(newEditForm);
+        setEditForm({ ...editForm, [field]: value });
     }
 
     const saveEdit = async () => {
