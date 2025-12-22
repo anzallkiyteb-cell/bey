@@ -161,6 +161,8 @@ const typeDefs = `#graphql
     mise_a_pied: Float
     retard: Int
     remarque: String
+    clock_in: String
+    clock_out: String
   }
 
   input PayrollInput {
@@ -523,20 +525,33 @@ const initializedMonths = new Set();
 const inProgressInitializations = new Map();
 
 async function initializePayrollTable(month: string) {
-  if (initializedMonths.has(month)) return true;
-  if (inProgressInitializations.has(month)) return inProgressInitializations.get(month);
-
   const tableName = `paiecurrent_${month}`;
-  // Fast path: Check existence without lock first to avoid blocking readers
+
+  // Fast path: Check existence and run migrations if table exists
   try {
     const check = await pool.query(`SELECT count(*) FROM public."${tableName}"`);
     if (parseInt(check.rows[0].count) > 0) {
+      // Table exists, ensure it has the latest columns
+      try {
+        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS retard INT DEFAULT 0`);
+        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS prime FLOAT DEFAULT 0`);
+        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS infraction FLOAT DEFAULT 0`);
+        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS doublage FLOAT DEFAULT 0`);
+        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS mise_a_pied FLOAT DEFAULT 0`);
+        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_in VARCHAR(50)`);
+        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_out VARCHAR(50)`);
+      } catch (migrationError) {
+        console.error("Migration error:", migrationError);
+      }
       initializedMonths.add(month);
       return true;
     }
   } catch (e) {
     // Table likely doesn't exist, proceed to safe initialization
   }
+
+  if (initializedMonths.has(month)) return true;
+  if (inProgressInitializations.has(month)) return inProgressInitializations.get(month);
 
   const initPromise = (async () => {
     const tableName = `paiecurrent_${month}`;
@@ -573,6 +588,8 @@ async function initializePayrollTable(month: string) {
           mise_a_pied FLOAT DEFAULT 0,
           retard INT DEFAULT 0,
           remarque TEXT,
+          clock_in VARCHAR(50),
+          clock_out VARCHAR(50),
           UNIQUE(user_id, date)
         )
       `);
@@ -582,6 +599,8 @@ async function initializePayrollTable(month: string) {
         await client.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS infraction FLOAT DEFAULT 0`);
         await client.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS doublage FLOAT DEFAULT 0`);
         await client.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS mise_a_pied FLOAT DEFAULT 0`);
+        await client.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_in VARCHAR(50)`);
+        await client.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_out VARCHAR(50)`);
 
         await client.query(`
           DO $$
@@ -936,10 +955,14 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
     let dayPrime = 0;
     let dayInfraction = 0;
 
+    let hasManualInfraction = false;
     userExtras.forEach((r: any) => {
       const motif = (r.motif || "").toLowerCase();
       if (motif.startsWith("prime")) dayPrime += parseFloat(r.montant || 0);
-      else if (motif.startsWith("infraction")) dayInfraction += Math.abs(parseFloat(r.montant || 0));
+      else if (motif.startsWith("infraction")) {
+        dayInfraction += parseFloat(r.montant || 0);
+        hasManualInfraction = true;
+      }
       else dayExtra += parseFloat(r.montant || 0);
     });
 
@@ -952,11 +975,26 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       miseAPiedDays = match ? parseFloat(match[1]) : 1;
     }
 
-    dayInfraction += autoInfraction;
+    // Only apply Auto Infraction if NO manual infraction overrides exist
+    if (!hasManualInfraction) {
+      dayInfraction += autoInfraction;
+    }
+    // Ensure non-negative
+    dayInfraction = Math.max(0, dayInfraction);
+
+    // Calculate clock_in and clock_out from punches
+    let clockIn = null;
+    let clockOut = null;
+    if (userPunches.length > 0) {
+      clockIn = formatTime(userPunches[0].device_time);
+      if (userPunches.length > 1 && userPunches.length % 2 === 0) {
+        clockOut = formatTime(userPunches[userPunches.length - 1].device_time);
+      }
+    }
 
     await pool.query(
-      `INSERT INTO public."${payrollTableName}"(user_id, username, date, present, acompte, extra, prime, infraction, doublage, mise_a_pied, retard, remarque)
-        VALUES($10, $12, $11, $1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO public."${payrollTableName}"(user_id, username, date, present, acompte, extra, prime, infraction, doublage, mise_a_pied, retard, remarque, clock_in, clock_out)
+        VALUES($10, $12, $11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14)
          ON CONFLICT(user_id, date) DO UPDATE SET
         present = EXCLUDED.present,
           acompte = EXCLUDED.acompte,
@@ -966,12 +1004,47 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
           doublage = EXCLUDED.doublage,
           mise_a_pied = EXCLUDED.mise_a_pied,
           retard = EXCLUDED.retard,
-          remarque = EXCLUDED.remarque`,
-      [finalPresent, totalAdvance, dayExtra, dayPrime, dayInfraction, dayDoublage, miseAPiedDays, retardMins, finalRemark, user.id, dateSQL, user.username]
+          remarque = EXCLUDED.remarque,
+          clock_in = EXCLUDED.clock_in,
+          clock_out = EXCLUDED.clock_out`,
+      [finalPresent, totalAdvance, dayExtra, dayPrime, dayInfraction, dayDoublage, miseAPiedDays, retardMins, finalRemark, user.id, dateSQL, user.username, clockIn, clockOut]
     );
   }));
   invalidateCache();
 }
+
+// One-time migration to add clock_in and clock_out columns to all existing payroll tables
+async function migrateAllPayrollTables() {
+  try {
+    // Get all tables that match the pattern paiecurrent_YYYY_MM
+    const tablesRes = await pool.query(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+      AND table_name LIKE 'paiecurrent_%'
+    `);
+
+    for (const row of tablesRes.rows) {
+      const tableName = row.table_name;
+      try {
+        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_in VARCHAR(50)`);
+        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_out VARCHAR(50)`);
+        console.log(`✓ Migrated table: ${tableName}`);
+      } catch (err) {
+        console.error(`Error migrating table ${tableName}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error("Migration error:", err);
+  }
+}
+
+// Run migration on startup
+migrateAllPayrollTables().then(() => {
+  console.log("Payroll tables migration completed");
+}).catch(err => {
+  console.error("Migration failed:", err);
+});
 
 const resolvers = {
   Query: {
@@ -1248,8 +1321,8 @@ const resolvers = {
     },
     getPayroll: async (_: any, { month, userId }: { month: string, userId?: string }) => {
       const cacheKey = `getPayroll:${month}:${userId || 'all'}`;
-      const cached = getCached(cacheKey);
-      if (cached) return cached;
+      // const cached = getCached(cacheKey);
+      // if (cached) return cached;
 
       await initializePayrollTable(month);
       const tableName = `paiecurrent_${month}`;
@@ -1304,7 +1377,7 @@ const resolvers = {
           dayExtras.forEach((e: any) => {
             const motif = (e.motif || "").toLowerCase();
             if (motif.startsWith("prime")) totalPrime += parseFloat(e.montant || 0);
-            else if (motif.startsWith("infraction")) totalInfraction += Math.abs(parseFloat(e.montant || 0));
+            else if (motif.startsWith("infraction")) totalInfraction += parseFloat(e.montant || 0);
             else totalExtra += parseFloat(e.montant || 0);
           });
 
@@ -1389,7 +1462,7 @@ const resolvers = {
             extra: totalExtra,
             prime: totalPrime,
             doublage: totalDoublage,
-            infraction: Math.max(r.infraction || 0, totalInfraction + (finalRetard > 10 ? 30 : 0)),
+            infraction: Math.max(r.infraction || 0, totalInfraction),
             mise_a_pied: finalMiseAPied,
             present: finalPresent,
             remarque: finalRemark,
@@ -2163,7 +2236,6 @@ const resolvers = {
         // If they set present = 0, we ensure type is 'Injustifié'
         let type = (input.present === 1) ? 'Présent' : 'Injustifié';
         if (input.mise_a_pied > 0) type = 'Mise à pied';
-
         let reason = input.remarque || (type === 'Mise à pied' ? `${input.mise_a_pied} jours` : type);
 
         const check = await pool.query('SELECT id FROM public.absents WHERE user_id = $1 AND date::date = $2::date', [user_id, dateSQL]);
@@ -2177,15 +2249,22 @@ const resolvers = {
       // RETARDS Sync
       if (input.retard !== undefined) {
         const check = await pool.query('SELECT id FROM public.retards WHERE user_id = $1 AND date::date = $2::date', [user_id, dateSQL]);
-        if (input.retard > 0) {
+        // Treat 0 as a valid value to persist (Force Clear), don't delete.
+        // Only delete if we needed a way to "Reset to Auto", but "0" usually means "Forgiven".
+        // To Reset to Auto, user probably needs a different mechanism, or deleting 0 here is wrong if Auto is > 0.
+        // Given user complaint, they want to FORCE 0.
+        if (input.retard >= 0) {
           const reason = `${input.retard} min`;
           if (check.rows.length > 0) {
+            // Update the first one
             await pool.query('UPDATE public.retards SET reason = $1 WHERE id = $2', [reason, check.rows[0].id]);
+            // Delete duplicates
+            for (let k = 1; k < check.rows.length; k++) {
+              await pool.query('DELETE FROM public.retards WHERE id = $1', [check.rows[k].id]);
+            }
           } else {
             await pool.query('INSERT INTO public.retards(user_id, username, date, reason) VALUES($1, $2, $3, $4)', [user_id, username, dateSQL, reason]);
           }
-        } else if (check.rows.length > 0) {
-          await pool.query('DELETE FROM public.retards WHERE id = $1', [check.rows[0].id]);
         }
       }
 
@@ -2196,33 +2275,48 @@ const resolvers = {
         const motifPrefix = label.toLowerCase();
         const check = await pool.query(`SELECT id FROM public.extras WHERE user_id = $1 AND date_extra::date = $2::date AND LOWER(motif) LIKE $3`, [user_id, dateSQL, `${motifPrefix}%`]);
 
-        if (val > 0) {
-          const motif = (label === 'Extra') ? 'Extra' : label; // Motif could be just 'Prime' or 'Infraction'
-          if (check.rows.length > 0) {
-            await pool.query('UPDATE public.extras SET montant = $1, motif = $2 WHERE id = $3', [val, motif, check.rows[0].id]);
-            // Cleanup duplicates if any
-            if (check.rows.length > 1) {
-              for (let k = 1; k < check.rows.length; k++) {
-                await pool.query('DELETE FROM public.extras WHERE id = $1', [check.rows[k].id]);
-              }
+        // Always upsert if value is defined (even 0), effectively allowing "Zero Override"
+        const motif = (label === 'Extra') ? 'Extra' : label;
+        if (check.rows.length > 0) {
+          await pool.query('UPDATE public.extras SET montant = $1, motif = $2 WHERE id = $3', [val, motif, check.rows[0].id]);
+          // Cleanup duplicates
+          if (check.rows.length > 1) {
+            for (let k = 1; k < check.rows.length; k++) {
+              await pool.query('DELETE FROM public.extras WHERE id = $1', [check.rows[k].id]);
             }
-          } else {
-            await pool.query('INSERT INTO public.extras(user_id, username, montant, date_extra, motif) VALUES($1, $2, $3, $4, $5)', [user_id, username, val, dateSQL, motif]);
           }
-        } else if (check.rows.length > 0) {
-          await pool.query('DELETE FROM public.extras WHERE user_id = $1 AND date_extra::date = $2::date AND LOWER(motif) LIKE $3', [user_id, dateSQL, `${motifPrefix}%`]);
+        } else {
+          await pool.query('INSERT INTO public.extras(user_id, username, montant, date_extra, motif) VALUES($1, $2, $3, $4, $5)', [user_id, username, val, dateSQL, motif]);
         }
       };
 
       await syncExtra(input.extra, 'Extra');
       await syncExtra(input.prime, 'Prime');
 
-      // For Infraction, we subtract the automatic part (30 DT if retard > 10 min) before syncing to master table
-      // This way, the manually entered value in the fiche represents the TOTAL infraction.
-      const currentRetard = input.retard !== undefined ? input.retard : (record.retard || 0);
-      const autoPart = currentRetard > 10 ? 30 : 0;
-      const manualInfraction = Math.max(0, (input.infraction || 0) - autoPart);
-      await syncExtra(manualInfraction, 'Infraction');
+      // Update Manual Infraction directly (Override Semantics)
+      // If input.infraction is provided, we save it as the value in Extras.
+      // recomputePayrollForDate will prioritize this value over the automatic one.
+      // Determine authoritative Retard value to calculate Auto Part correctly
+      let effectiveRetard = (record.retard || 0);
+
+      // 1. Prefer Input (Manual Edit)
+      if (input.retard !== undefined) {
+        effectiveRetard = input.retard;
+      } else {
+        // 2. Fallback to Retards table (Source of Truth) because paiecurrent.retard might be stale/zero
+        const retardCheck = await pool.query('SELECT reason FROM public.retards WHERE user_id = $1 AND date::date = $2::date', [user_id, dateSQL]);
+        if (retardCheck.rows.length > 0) {
+          const match = retardCheck.rows[0].reason?.match(/(\d+)\s*min/);
+          if (match) effectiveRetard = parseInt(match[1]);
+        }
+      }
+
+      // Update Manual Infraction directly (Override Semantics)
+      // Save the exact value provided by the user. 
+      // recomputePayrollForDate is configured to use this value and ignore the automatic penalty if this record exists.
+      if (input.infraction !== undefined) {
+        await syncExtra(input.infraction, 'Infraction');
+      }
 
       // AVANCES Sync (Acompte)
       if (input.acompte !== undefined) {
@@ -2256,6 +2350,49 @@ const resolvers = {
           }
         } else if (check.rows.length > 0) {
           await pool.query('DELETE FROM public.doublages WHERE id = $1', [check.rows[0].id]);
+        }
+      }
+
+      // 6. Recalculate clock_in time if retard was manually changed
+      if (input.retard !== undefined) {
+        // Fetch user schedule to determine shift type
+        const scheduleRes = await pool.query('SELECT * FROM public.user_schedules WHERE user_id = $1', [user_id]);
+        const schedule = scheduleRes.rows[0];
+
+        if (schedule) {
+          const targetDate = new Date(dateSQL as string + 'T12:00:00');
+          const dayOfWeekIndex = targetDate.getDay();
+          const dayCols = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
+          const dayCol = dayCols[dayOfWeekIndex];
+          let shiftType = schedule[dayCol] || "Repos";
+
+          // Get user info for department check
+          const userRes = await pool.query('SELECT "département" as departement FROM public.users WHERE id = $1', [user_id]);
+          const userDept = userRes.rows[0]?.departement;
+
+          let newClockIn = null;
+
+          if (shiftType !== "Repos") {
+            if (userDept === 'Chef_Cuisine') {
+              // Chef has shift starting at 11:00 AM
+              const shiftStart = new Date(dateSQL as string + 'T11:00:00');
+              const actualArrival = new Date(shiftStart.getTime() + (input.retard * 60000));
+              newClockIn = formatTime(actualArrival.toISOString());
+            } else {
+              // Regular employees: Matin starts at 7:00, Soir at 16:00
+              let startHour = 7;
+              if (shiftType === "Soir") startHour = 16;
+
+              const shiftStart = new Date(dateSQL as string + `T${String(startHour).padStart(2, '0')}:00:00`);
+              const actualArrival = new Date(shiftStart.getTime() + (input.retard * 60000));
+              newClockIn = formatTime(actualArrival.toISOString());
+            }
+
+            // Update clock_in in payroll table
+            if (newClockIn) {
+              await pool.query(`UPDATE public."${tableName}" SET clock_in = $1 WHERE id = $2`, [newClockIn, id]);
+            }
+          }
         }
       }
 
@@ -2321,7 +2458,17 @@ const resolvers = {
       return true;
     },
     markNotificationsAsRead: async (_: any, { userId }: { userId: string }) => {
-      await pool.query('UPDATE public.notifications SET read = TRUE WHERE user_id = $1 OR user_id IS NULL', [userId]);
+      // Check user role first
+      const userRes = await pool.query('SELECT role FROM public.users WHERE id = $1', [userId]);
+      const role = userRes.rows[0]?.role;
+
+      if (['admin', 'manager'].includes(role)) {
+        // Admins/Managers see all notifications, so clear all unread ones
+        await pool.query('UPDATE public.notifications SET read = TRUE');
+      } else {
+        // Regular users only clear their own
+        await pool.query('UPDATE public.notifications SET read = TRUE WHERE user_id = $1 OR user_id IS NULL', [userId]);
+      }
       return true;
     },
     markNotificationAsRead: async (_: any, { id }: { id: string }) => {

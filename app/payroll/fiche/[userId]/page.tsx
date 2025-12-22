@@ -60,6 +60,8 @@ const GET_PAYROLL = gql`
       retard
       remarque
       doublage
+      clock_in
+      clock_out
     }
   }
 `
@@ -89,6 +91,8 @@ const UPDATE_PAYROLL_RECORD = gql`
       retard
       remarque
       doublage
+      clock_in
+      clock_out
     }
   }
 `
@@ -464,6 +468,8 @@ export default function UserFichePage() {
                                         <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-left w-24">Jour</th>
                                         <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Présence</th>
                                         <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Retard</th>
+                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Entrée</th>
+                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Sortie</th>
                                         <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Acompte</th>
                                         <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Extra</th>
                                         <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-20">Double</th>
@@ -487,6 +493,12 @@ export default function UserFichePage() {
                                                 </td>
                                                 <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center text-orange-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
                                                     {record.retard > 0 ? formatDuration(record.retard) : "-"}
+                                                </td>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-mono group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                    {record.clock_in || "-"}
+                                                </td>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-mono group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                    {record.clock_out || "-"}
                                                 </td>
                                                 <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right group-hover:bg-[#8b5a2b]/5 transition-colors">
                                                     {record.acompte > 0 ? `${record.acompte} DT` : ""}

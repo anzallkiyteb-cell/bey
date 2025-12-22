@@ -58,16 +58,28 @@ export function NotificationBell() {
     fetchPolicy: "cache-and-network"
   });
 
+  const [optimisticAllRead, setOptimisticAllRead] = useState(false);
   const [markAllRead] = useMutation(MARK_ALL_READ, {
     onCompleted: () => refetch()
   });
   const [markOneRead] = useMutation(MARK_ONE_READ);
 
   const notifications = useMemo(() => data?.getNotifications || [], [data]);
-  const unreadCount = useMemo(() => notifications.filter((n: any) => !n.read).length, [notifications]);
+
+
+  const unreadCount = useMemo(() => {
+    if (optimisticAllRead) return 0;
+    return notifications.filter((n: any) => !n.read).length;
+  }, [notifications, optimisticAllRead]);
+
+  // Reset optimistic state when data actually updates from server
+  useEffect(() => {
+    if (data) setOptimisticAllRead(false);
+  }, [data]);
 
   const handleMarkAllAsRead = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    setOptimisticAllRead(true); // Force immediate UI feedback
     if (!currentUser?.id) return;
     await markAllRead({ variables: { userId: currentUser.id } });
   }
@@ -190,7 +202,7 @@ export function NotificationBell() {
                   onClick={() => handleNotificationClick(notification)}
                   className={cn(
                     "p-5 cursor-pointer transition-all duration-200 focus:bg-[#f8f6f1]",
-                    !notification.read ? "bg-[#f8f6f1]/50 border-l-4 border-l-[#8b5a2b]" : "bg-white grayscale-[0.5] opacity-80"
+                    !(optimisticAllRead || notification.read) ? "bg-[#f8f6f1]/50 border-l-4 border-l-[#8b5a2b]" : "bg-white grayscale-[0.5] opacity-80"
                   )}
                 >
                   <div className="flex gap-4 w-full">
@@ -199,11 +211,11 @@ export function NotificationBell() {
                       <div className="flex items-start justify-between gap-2">
                         <p className={cn(
                           "font-bold text-base leading-tight uppercase tracking-tight",
-                          !notification.read ? "text-[#3d2c1e]" : "text-[#6b5744]"
+                          !(optimisticAllRead || notification.read) ? "text-[#3d2c1e]" : "text-[#6b5744]"
                         )}>
                           {notification.title}
                         </p>
-                        {!notification.read && (
+                        {!(optimisticAllRead || notification.read) && (
                           <div className="h-2 w-2 rounded-full bg-[#8b5a2b] flex-shrink-0 mt-1.5 shadow-[0_0_8px_rgba(139,90,43,0.5)]" />
                         )}
                       </div>

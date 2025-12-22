@@ -6,7 +6,7 @@ import { Sidebar } from "@/components/sidebar"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { DollarSign, TrendingUp, AlertCircle, Plus, CheckCircle, XCircle, Trash2, Calendar as CalendarIcon } from "lucide-react"
+import { DollarSign, TrendingUp, AlertCircle, Plus, CheckCircle, XCircle, Trash2, Calendar as CalendarIcon, Loader2 } from "lucide-react"
 import { useState, Suspense, useMemo, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
@@ -85,6 +85,7 @@ function AdvancesContent() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
   const [showMaxUsersDialog, setShowMaxUsersDialog] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Form states
   const [selectedUserId, setSelectedUserId] = useState("")
@@ -126,7 +127,13 @@ function AdvancesContent() {
     return () => clearInterval(interval);
   }, [userIdParam, data?.getAdvances]);
 
-  const [addAdvance] = useMutation(ADD_ADVANCE, {
+  const [addAdvance, { loading: isAdding }] = useMutation(ADD_ADVANCE, {
+    optimisticResponse: (vars) => ({
+      addAdvance: {
+        id: "temp-id-" + Date.now(),
+        __typename: "Advance"
+      }
+    }),
     update(cache, { data: { addAdvance } }) {
       const existingData: any = cache.readQuery({ query: GET_DATA });
       if (existingData && existingData.getAdvances) {
@@ -306,6 +313,9 @@ function AdvancesContent() {
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
     try {
       await addAdvance({
         variables: {
@@ -319,6 +329,8 @@ function AdvancesContent() {
     } catch (err) {
       console.error(err);
       alert("Erreur lors de l'ajout");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -739,9 +751,17 @@ function AdvancesContent() {
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
               <Button
                 type="submit"
+                disabled={isSubmitting || isAdding}
                 className="bg-gradient-to-r from-[#8b5a2b] to-[#a0522d] text-white hover:opacity-90 h-12 text-base flex-1"
               >
-                Ajouter
+                {isSubmitting || isAdding ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    En cours...
+                  </>
+                ) : (
+                  "Ajouter"
+                )}
               </Button>
               <Button
                 type="button"
