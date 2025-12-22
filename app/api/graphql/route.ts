@@ -523,7 +523,27 @@ const fetchDayPunches = async (logicalDate: Date, userId: string | null = null) 
     })()
   ]);
 
-  return [...res1.rows, ...res2.rows];
+  const allRows = [...res1.rows, ...res2.rows];
+
+  // Deduplicate punches: if same user punches within 5 minutes, keep only the first one
+  const cleaned: any[] = [];
+  const lastPunchByUser = new Map<number, number>();
+
+  // Sort by time just in case
+  allRows.sort((a, b) => new Date(a.device_time).getTime() - new Date(b.device_time).getTime());
+
+  for (const p of allRows) {
+    const userId = Number(p.user_id);
+    const punchTime = new Date(p.device_time).getTime();
+    const lastTime = lastPunchByUser.get(userId);
+
+    if (lastTime === undefined || (punchTime - lastTime) > 5 * 60 * 1000) {
+      cleaned.push(p);
+      lastPunchByUser.set(userId, punchTime);
+    }
+  }
+
+  return cleaned;
 };
 
 const initializedMonths = new Set();

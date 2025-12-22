@@ -216,7 +216,7 @@ export default function AllSchedulesPlacementPage() {
                             </tr>
                         </thead>
                         <tbody>
-                            {depts.map(dept => (
+                            {depts.map((dept: any) => (
                                 <React.Fragment key={dept}>
                                     <tr className="bg-[#f3ead8] relative z-40">
                                         <td colSpan={8} className="p-2 lg:p-3 sticky left-0 z-40 bg-[#f3ead8] border-b border-[#d4c5a9]">
@@ -227,11 +227,11 @@ export default function AllSchedulesPlacementPage() {
                                         </td>
                                     </tr>
                                     {SHIFT_OPTIONS.map(shiftOpt => (
-                                        <tr key={`${dept}-${shiftOpt.value}`} className="group hover:bg-[#8b5a2b]/5 transition-colors border-b border-[#f1e9db]">
+                                        <tr key={`${dept}-${shiftOpt.value}`} className={cn("group transition-colors border-b", shiftOpt.bg, "hover:brightness-[0.98]")}>
                                             {/* Left Header for Shift Name */}
                                             <td className={cn(
-                                                "p-2 lg:p-3 sticky left-0 z-30 border-r border-[#f1e9db] transition-colors group-hover:bg-[#fcf8f3] shadow-md",
-                                                shiftOpt.bg
+                                                "p-2 lg:p-3 sticky left-0 z-30 border-r transition-colors shadow-sm",
+                                                shiftOpt.bg, shiftOpt.border
                                             )}>
                                                 <div className={cn("flex flex-col lg:flex-row lg:items-center gap-1.5 lg:gap-2", shiftOpt.color)}>
                                                     <shiftOpt.icon className="h-3.5 w-3.5" />
@@ -241,15 +241,15 @@ export default function AllSchedulesPlacementPage() {
 
                                             {/* Cells for Days */}
                                             {DAYS.map(day => {
-                                                const emps = filteredSchedules.filter(s =>
+                                                const emps = filteredSchedules.filter((s: any) =>
                                                     (s.departement || "Autre") === dept &&
                                                     (s[day.key] || "Repos") === shiftOpt.value
                                                 )
 
                                                 return (
-                                                    <td key={day.key} className="p-1 lg:p-2 border-r border-[#f1e9db] align-top bg-white/50">
+                                                    <td key={day.key} className={cn("p-1 lg:p-2 border-r align-top transition-colors", shiftOpt.border)}>
                                                         <div className="flex flex-col gap-1 min-h-[30px] lg:min-h-[50px]">
-                                                            {emps.map(emp => {
+                                                            {emps.map((emp: any) => {
                                                                 const isUpdating = updatingId?.startsWith(`${emp.user_id}-${day.key}`)
                                                                 return (
                                                                     <DropdownMenu key={emp.user_id}>
@@ -257,17 +257,28 @@ export default function AllSchedulesPlacementPage() {
                                                                             <button
                                                                                 disabled={isUpdating}
                                                                                 className={cn(
-                                                                                    "flex items-center gap-1.5 px-1.5 py-1 rounded-md bg-white border border-[#c9b896]/20 transition-all hover:border-[#8b5a2b] hover:shadow-sm active:scale-95 text-left w-full overflow-hidden",
-                                                                                    isUpdating && "opacity-50 grayscale"
+                                                                                    "flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all active:scale-95 text-left w-full overflow-hidden border shadow-[0_1px_2px_rgba(0,0,0,0.05)]",
+                                                                                    shiftOpt.iconBg, "hover:shadow-md hover:-translate-y-0.5",
+                                                                                    shiftOpt.border,
+                                                                                    isUpdating && "opacity-50 grayscale cursor-not-allowed"
                                                                                 )}
                                                                             >
-                                                                                <div className="h-4 w-4 lg:h-5 lg:w-5 bg-[#8b5a2b]/10 rounded flex-shrink-0 flex items-center justify-center text-[7px] font-black text-[#8b5a2b] overflow-hidden border border-[#8b5a2b]/20">
+                                                                                <div className="h-6 w-6 lg:h-7 lg:w-7 bg-white/60 rounded-md flex-shrink-0 flex items-center justify-center text-[10px] font-black text-[#8b5a2b] overflow-hidden border border-[#8b5a2b]/10">
                                                                                     {emp.photo ? (
                                                                                         <img src={emp.photo} className="h-full w-full object-cover" />
-                                                                                    ) : emp.username.charAt(0)}
+                                                                                    ) : (
+                                                                                        <span className="opacity-40">{emp.username.charAt(0)}</span>
+                                                                                    )}
                                                                                 </div>
-                                                                                <span className="text-[8px] lg:text-[9px] font-black text-[#3d2c1e] truncate uppercase tracking-tighter leading-snug">{emp.username}</span>
-                                                                                {isUpdating && <Loader2 className="h-2 w-2 animate-spin text-[#8b5a2b] shrink-0" />}
+                                                                                <div className="flex flex-col min-w-0">
+                                                                                    <span className="text-[9px] lg:text-[10px] font-black text-[#3d2c1e] truncate uppercase tracking-tight leading-none mb-0.5">
+                                                                                        {emp.username}
+                                                                                    </span>
+                                                                                    <span className="text-[7px] font-bold text-[#8b5a2b]/50 uppercase tracking-widest leading-none">
+                                                                                        {emp.departement || "Staff"}
+                                                                                    </span>
+                                                                                </div>
+                                                                                {isUpdating && <Loader2 className="h-3 w-3 animate-spin text-[#8b5a2b] ml-auto shrink-0" />}
                                                                             </button>
                                                                         </DropdownMenuTrigger>
                                                                         <DropdownMenuContent align="start" className="rounded-xl border border-[#c9b896]/30 p-1 bg-white shadow-2xl z-[100] w-[140px]">
