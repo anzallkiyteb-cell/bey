@@ -39,6 +39,7 @@ const typeDefs = `#graphql
     state: String!
     shift: String
     lastPunch: String
+    workedHours: String
     is_blocked: Boolean
   }
 
@@ -1746,6 +1747,16 @@ const resolvers = {
           else if (hasSoir) shift = "Coupure (Soir)";
         }
 
+        let workedHours = null;
+        if (userPunches.length >= 2) {
+          const start = new Date(userPunches[0].device_time).getTime();
+          const end = new Date(userPunches[userPunches.length - 1].device_time).getTime();
+          const diffMs = end - start;
+          const hours = Math.floor(diffMs / (1000 * 60 * 60));
+          const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+          workedHours = `${hours}h ${mins}m`;
+        }
+
         return {
           user,
           attendance: userPunches[0] || null,
@@ -1753,6 +1764,7 @@ const resolvers = {
           clockOut,
           state,
           shift,
+          workedHours,
           lastPunch: userPunches.length > 0 ? userPunches[userPunches.length - 1].device_time : null
         };
       });

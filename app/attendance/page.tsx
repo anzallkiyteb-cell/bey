@@ -37,6 +37,7 @@ const GET_PERSONNEL_STATUS = gql`
       state
       shift
       lastPunch
+      workedHours
     }
   }
 `;
@@ -551,6 +552,7 @@ function AttendanceContent() {
                       <th className="px-6 py-5 font-bold text-[#8b5a2b] uppercase tracking-widest text-sm">Entrée</th>
                       <th className="px-6 py-5 font-bold text-[#8b5a2b] uppercase tracking-widest text-sm">Sortie</th>
                       <th className="px-6 py-5 font-bold text-[#8b5a2b] uppercase tracking-widest text-sm">Shift</th>
+                      <th className="px-6 py-5 font-bold text-[#8b5a2b] uppercase tracking-widest text-sm text-center">Heures</th>
                       <th className="px-6 py-5 font-bold text-[#8b5a2b] uppercase tracking-widest text-sm">Statut</th>
                     </tr>
                   </thead>
@@ -594,6 +596,16 @@ function AttendanceContent() {
                             )}>
                               {person.shift || "—"}
                             </span>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {person.workedHours ? (
+                              <div className="flex flex-col items-center">
+                                <span className="text-lg font-black text-emerald-700 leading-none">{person.workedHours.split(' ')[0]}</span>
+                                <span className="text-[10px] font-bold text-[#8b5a2b] opacity-40 uppercase">{person.workedHours.split(' ')[1]}</span>
+                              </div>
+                            ) : (
+                              <span className="text-[#8b5a2b]/20">—</span>
+                            )}
                           </td>
                           <td className="px-6 py-4">
                             <span className={cn(
