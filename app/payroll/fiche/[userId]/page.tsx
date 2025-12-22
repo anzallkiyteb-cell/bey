@@ -280,13 +280,6 @@ export default function UserFichePage() {
                     month: selectedMonth,
                     id: editingId,
                     input
-                },
-                optimisticResponse: {
-                    updatePayrollRecord: {
-                        id: editingId,
-                        ...input,
-                        __typename: "PayrollRecord"
-                    }
                 }
             })
 

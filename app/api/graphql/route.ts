@@ -163,6 +163,7 @@ const typeDefs = `#graphql
     remarque: String
     clock_in: String
     clock_out: String
+    updated: Boolean
   }
 
   input PayrollInput {
@@ -175,6 +176,8 @@ const typeDefs = `#graphql
     mise_a_pied: Float
     retard: Int
     remarque: String
+    clock_in: String
+    clock_out: String
   }
 
   type Query {
@@ -240,6 +243,7 @@ const typeDefs = `#graphql
     createLoginAccount(username: String!, password: String!, role: String!, permissions: String): User
     updateLoginAccount(id: ID!, username: String, password: String, role: String, permissions: String): User
     deleteLoginAccount(id: ID!): Boolean
+    migratePayrollUpdatedColumn(month: String!): Boolean
     markNotificationsAsRead(userId: ID!): Boolean
     markNotificationAsRead(id: ID!): Boolean
     deleteOldNotifications: Boolean
@@ -540,6 +544,7 @@ async function initializePayrollTable(month: string) {
         await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS mise_a_pied FLOAT DEFAULT 0`);
         await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_in VARCHAR(50)`);
         await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_out VARCHAR(50)`);
+        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS updated BOOLEAN DEFAULT FALSE`);
       } catch (migrationError) {
         console.error("Migration error:", migrationError);
       }
@@ -590,6 +595,7 @@ async function initializePayrollTable(month: string) {
           remarque TEXT,
           clock_in VARCHAR(50),
           clock_out VARCHAR(50),
+          updated BOOLEAN DEFAULT FALSE,
           UNIQUE(user_id, date)
         )
       `);
@@ -601,6 +607,7 @@ async function initializePayrollTable(month: string) {
         await client.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS mise_a_pied FLOAT DEFAULT 0`);
         await client.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_in VARCHAR(50)`);
         await client.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_out VARCHAR(50)`);
+        await client.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS updated BOOLEAN DEFAULT FALSE`);
 
         await client.query(`
           DO $$
@@ -992,21 +999,40 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       }
     }
 
+    // Check if this record has been manually updated
+    const checkUpdated = await pool.query(
+      `SELECT updated FROM public.\"${payrollTableName}\" WHERE user_id = $1 AND date = $2`,
+      [user.id, dateSQL]
+    );
+
+    // Only protect past days from automatic updates
+    // Current day should always update since employees can still punch in/out
+    const checkTodayNow = new Date();
+    const checkCurrentLogicalDate = getLogicalDate(checkTodayNow);
+    const isCurrentDay = dateSQL === formatDateLocal(checkCurrentLogicalDate);
+
+    // Skip automatic update if:
+    // 1. Record has been manually updated (updated = TRUE)
+    // 2. AND it's NOT the current day (past days only)
+    if (checkUpdated.rows.length > 0 && checkUpdated.rows[0].updated === true && !isCurrentDay) {
+      return; // Don't overwrite manually updated records from past days
+    }
+
     await pool.query(
-      `INSERT INTO public."${payrollTableName}"(user_id, username, date, present, acompte, extra, prime, infraction, doublage, mise_a_pied, retard, remarque, clock_in, clock_out)
-        VALUES($10, $12, $11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14)
+      `INSERT INTO public.\"${payrollTableName}\"(user_id, username, date, present, acompte, extra, prime, infraction, doublage, mise_a_pied, retard, remarque, clock_in, clock_out, updated)
+        VALUES($10, $12, $11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, FALSE)
          ON CONFLICT(user_id, date) DO UPDATE SET
-        present = EXCLUDED.present,
-          acompte = EXCLUDED.acompte,
-          extra = EXCLUDED.extra,
-          prime = EXCLUDED.prime,
-          infraction = EXCLUDED.infraction,
-          doublage = EXCLUDED.doublage,
-          mise_a_pied = EXCLUDED.mise_a_pied,
-          retard = EXCLUDED.retard,
-          remarque = EXCLUDED.remarque,
-          clock_in = EXCLUDED.clock_in,
-          clock_out = EXCLUDED.clock_out`,
+        present = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".present ELSE EXCLUDED.present END,
+          acompte = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".acompte ELSE EXCLUDED.acompte END,
+          extra = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".extra ELSE EXCLUDED.extra END,
+          prime = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".prime ELSE EXCLUDED.prime END,
+          infraction = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".infraction ELSE EXCLUDED.infraction END,
+          doublage = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".doublage ELSE EXCLUDED.doublage END,
+          mise_a_pied = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".mise_a_pied ELSE EXCLUDED.mise_a_pied END,
+          retard = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".retard ELSE EXCLUDED.retard END,
+          remarque = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".remarque ELSE EXCLUDED.remarque END,
+          clock_in = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".clock_in ELSE EXCLUDED.clock_in END,
+          clock_out = CASE WHEN public.\"${payrollTableName}\".updated = TRUE AND public.\"${payrollTableName}\".date::date < CURRENT_DATE THEN public.\"${payrollTableName}\".clock_out ELSE EXCLUDED.clock_out END`,
       [finalPresent, totalAdvance, dayExtra, dayPrime, dayInfraction, dayDoublage, miseAPiedDays, retardMins, finalRemark, user.id, dateSQL, user.username, clockIn, clockOut]
     );
   }));
@@ -1027,9 +1053,9 @@ async function migrateAllPayrollTables() {
     for (const row of tablesRes.rows) {
       const tableName = row.table_name;
       try {
-        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_in VARCHAR(50)`);
-        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_out VARCHAR(50)`);
-        console.log(`✓ Migrated table: ${tableName}`);
+        await pool.query(`ALTER TABLE public.\"${tableName}\" ADD COLUMN IF NOT EXISTS clock_in VARCHAR(50)`);
+        await pool.query(`ALTER TABLE public.\"${tableName}\" ADD COLUMN IF NOT EXISTS clock_out VARCHAR(50)`);
+        await pool.query(`ALTER TABLE public.\"${tableName}\" ADD COLUMN IF NOT EXISTS updated BOOLEAN DEFAULT FALSE`);
       } catch (err) {
         console.error(`Error migrating table ${tableName}:`, err);
       }
@@ -1041,7 +1067,6 @@ async function migrateAllPayrollTables() {
 
 // Run migration on startup
 migrateAllPayrollTables().then(() => {
-  console.log("Payroll tables migration completed");
 }).catch(err => {
   console.error("Migration failed:", err);
 });
@@ -2212,18 +2237,26 @@ const resolvers = {
       // 2. Clear caches to ensure fresh data across the dashboard/other pages
       invalidateCache();
 
-      // 3. Recompute everything for that date based on machine data/master tables first
+      // 3. Mark this record as manually updated FIRST, so it won't be overwritten during recompute
+      const updateResult = await pool.query(`UPDATE public."${tableName}" SET updated = TRUE WHERE id = $1`, [id]);
+
+      // 4. Recompute everything for that date based on machine data/master tables
+      // This will now skip this record since updated = TRUE (for past days)
       await recomputePayrollForDate(dateSQL as string, String(user_id));
 
-      // 4. Then apply manual overrides from the fiche (these "win" for this specific record)
-      const updates = [];
+      // 5. Then apply manual overrides from the fiche (these "win" for this specific record)
+      const updates: string[] = [];
       const params: any[] = [id];
       let i = 2;
       for (const [key, val] of Object.entries(input)) {
+        if (key === 'id') continue;
         updates.push(`"${key}" = $${i++}`);
         if (key === 'retard') params.push(parseInt(String(val || 0)));
-        else if (key === 'id') continue; // Don't update ID field
         else params.push(val);
+      }
+
+      if (updates.length > 0) {
+        await pool.query(`UPDATE public.\"${tableName}\" SET ${updates.join(', ')} WHERE id = $1`, params);
       }
       const payrollUrl = dateSQL ? `/payroll/fiche/${user_id}?month=${dateSQL.substring(0, 7).replace('-', '_')}` : `/payroll/fiche/${user_id}`;
       await createNotification('system', "Mise à jour Fiche de Paie", `La fiche de paie de ${username} pour le ${dateSQL} a été mise à jour par un manageur.`, user_id, null, payrollUrl);
@@ -2456,6 +2489,16 @@ const resolvers = {
       await Promise.all(syncPromises);
       invalidateCache();
       return true;
+    },
+    migratePayrollUpdatedColumn: async (_: any, { month }: { month: string }) => {
+      const tableName = `paiecurrent_${month}`;
+      try {
+        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS updated BOOLEAN DEFAULT FALSE`);
+        return true;
+      } catch (err) {
+        console.error(`Error adding updated column to ${tableName}:`, err);
+        throw err;
+      }
     },
     markNotificationsAsRead: async (_: any, { userId }: { userId: string }) => {
       // Check user role first
