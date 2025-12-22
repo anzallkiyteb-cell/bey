@@ -877,38 +877,40 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       }
     }
 
-    // Update Absents/Retards tables if needed
-    if (shiftType !== "Repos") {
-      const existingRetard = retardsMap.get(userIdNum);
-      const userAbsents = absentsMap.get(userIdNum) || [];
-      if (isAbsent) {
-        // ENSURE UNIQUE: Use Upsert or check constraint
-        await pool.query(`
-            INSERT INTO public.absents(user_id, username, date, type, reason) 
-            VALUES($1, $2, $3, $4, $5)
-            ON CONFLICT (user_id, date) DO UPDATE SET
-            type = EXCLUDED.type,
-            reason = EXCLUDED.reason
-          `, [user.id, user.username, dateSQL, "Absence", reason]);
-        // Also clear any retard if they are eventually marked absent (e.g. missing exit on past day)
-        await pool.query('DELETE FROM public.retards WHERE user_id = $1 AND date::date = $2::date', [user.id, dateSQL]);
-      } else if (isRetard) {
-        const punchTime = userPunches[0].device_time;
-        // retards uses timestamp, we want uniqueness per day
-        await pool.query(`
-          INSERT INTO public.retards(user_id, username, date, reason) 
-          VALUES($1, $2, $3, $4)
-          ON CONFLICT (user_id, (date::date)) DO UPDATE SET
-          date = EXCLUDED.date,
-          reason = EXCLUDED.reason
-        `, [user.id, user.username, punchTime, reason]);
+    // Check if this record has been manually updated
+    const checkUpdated = await pool.query(
+      `SELECT updated FROM public.\"${payrollTableName}\" WHERE user_id = $1 AND date = $2`,
+      [user.id, dateSQL]
+    );
+    const isManuallyUpdated = checkUpdated.rows.length > 0 && checkUpdated.rows[0].updated === true;
 
-        // IMPORTANT: Clear ANY auto-absence if they are marked as Retard
-        await pool.query("DELETE FROM public.absents WHERE user_id = $1 AND date = $2 AND (type = 'Absence' OR type = 'Injustifié')", [user.id, dateSQL]);
-      } else {
-        // Clear both if they are perfectly on time and present
-        await pool.query("DELETE FROM public.absents WHERE user_id = $1 AND date = $2 AND (type = 'Absence' OR type = 'Injustifié')", [user.id, dateSQL]);
-        await pool.query('DELETE FROM public.retards WHERE user_id = $1 AND date::date = $2::date', [user.id, dateSQL]);
+    // Determine state and reasons...
+    // Only update tables if NOT manually updated
+    if (!isManuallyUpdated) {
+      if (shiftType !== "Repos") {
+        if (isAbsent) {
+          await pool.query(`
+              INSERT INTO public.absents(user_id, username, date, type, reason) 
+              VALUES($1, $2, $3, $4, $5)
+              ON CONFLICT (user_id, date) DO UPDATE SET
+              type = EXCLUDED.type,
+              reason = EXCLUDED.reason
+            `, [user.id, user.username, dateSQL, "Absence", reason]);
+          await pool.query('DELETE FROM public.retards WHERE user_id = $1 AND date::date = $2::date', [user.id, dateSQL]);
+        } else if (isRetard) {
+          const punchTime = userPunches[0].device_time;
+          await pool.query(`
+            INSERT INTO public.retards(user_id, username, date, reason) 
+            VALUES($1, $2, $3, $4)
+            ON CONFLICT (user_id, (date::date)) DO UPDATE SET
+            date = EXCLUDED.date,
+            reason = EXCLUDED.reason
+          `, [user.id, user.username, punchTime, reason]);
+          await pool.query("DELETE FROM public.absents WHERE user_id = $1 AND date = $2 AND (type = 'Absence' OR type = 'Injustifié')", [user.id, dateSQL]);
+        } else {
+          await pool.query("DELETE FROM public.absents WHERE user_id = $1 AND date = $2 AND (type = 'Absence' OR type = 'Injustifié')", [user.id, dateSQL]);
+          await pool.query('DELETE FROM public.retards WHERE user_id = $1 AND date::date = $2::date', [user.id, dateSQL]);
+        }
       }
     }
 
@@ -999,25 +1001,6 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       if (userPunches.length > 1 && userPunches.length % 2 === 0) {
         clockOut = formatTime(userPunches[userPunches.length - 1].device_time);
       }
-    }
-
-    // Check if this record has been manually updated
-    const checkUpdated = await pool.query(
-      `SELECT updated FROM public.\"${payrollTableName}\" WHERE user_id = $1 AND date = $2`,
-      [user.id, dateSQL]
-    );
-
-    // Only protect past days from automatic updates
-    // Current day should always update since employees can still punch in/out
-    const checkTodayNow = new Date();
-    const checkCurrentLogicalDate = getLogicalDate(checkTodayNow);
-    const isCurrentDay = dateSQL === formatDateLocal(checkCurrentLogicalDate);
-
-    // Skip automatic update if:
-    // 1. Record has been manually updated (updated = TRUE)
-    // 2. AND it's NOT the current day (past days only)
-    if (checkUpdated.rows.length > 0 && checkUpdated.rows[0].updated === true && !isCurrentDay) {
-      return; // Don't overwrite manually updated records from past days
     }
 
     // Even if it's the current day, if it's manually updated, we should be careful.
@@ -1587,6 +1570,7 @@ const resolvers = {
       const targetDate = date ? new Date(date + 'T12:00:00') : new Date();
       const logicalDay = getLogicalDate(targetDate);
       const dateSQL = formatDateLocal(logicalDay);
+      if (!dateSQL) return [];
 
       // Check cache first (30 second TTL for today, 5 minutes for past dates)
       const isToday = dateSQL === formatDateLocal(getLogicalDate(new Date()));
@@ -1599,8 +1583,12 @@ const resolvers = {
       const dayCols = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
       const dayCol = dayCols[dayOfWeekIndex];
 
+      const monthKey = dateSQL.substring(0, 7).replace('-', '_');
+      const payrollTableName = `paiecurrent_${monthKey}`;
+      await initializePayrollTable(monthKey);
+
       // Parallelize Fetching
-      const [usersRes, schedulesRes, allPunches, retardsRes, absentsRes] = await Promise.all([
+      const [usersRes, schedulesRes, allPunches, retardsRes, absentsRes, payrollRes] = await Promise.all([
         pool.query(`
           SELECT id, username, role, status, zktime_id, "département" as departement, email, phone, cin, base_salary, photo, is_blocked, permissions 
           FROM public.users 
@@ -1609,7 +1597,8 @@ const resolvers = {
         pool.query('SELECT * FROM public.user_schedules'),
         fetchDayPunches(logicalDay),
         pool.query('SELECT user_id, reason FROM public.retards WHERE date::date = $1::date', [dateSQL]),
-        pool.query('SELECT user_id, reason, type FROM public.absents WHERE date::date = $1::date', [dateSQL])
+        pool.query('SELECT user_id, reason, type FROM public.absents WHERE date::date = $1::date', [dateSQL]),
+        pool.query(`SELECT * FROM public."${payrollTableName}" WHERE date = $1`, [dateSQL])
       ]);
 
 
@@ -1623,6 +1612,7 @@ const resolvers = {
       const schedules = schedulesRes.rows;
       const dayRetards = retardsRes.rows;
       const dayAbsents = absentsRes.rows;
+      const dayPayroll = payrollRes.rows;
 
       // Group punches by user_id for O(1) lookup inside the loop
       const punchesByUser = new Map();
@@ -1747,8 +1737,35 @@ const resolvers = {
           else if (hasSoir) shift = "Coupure (Soir)";
         }
 
+        // PRIORITY: If manually updated in payroll, use those values
+        const userPayroll = dayPayroll.find((p: any) => p.user_id == user.id);
+        const isManuallyUpdated = userPayroll && userPayroll.updated === true;
+
+        if (isManuallyUpdated) {
+          clockIn = userPayroll.clock_in || clockIn;
+          clockOut = userPayroll.clock_out || clockOut;
+
+          if (userPayroll.present === 1) {
+            // Check if it was explicitly marked as retard in payroll table
+            // In paiecurrent, retard is an Int (minutes)
+            state = (userPayroll.retard > 0) ? 'Retard' : 'Présent';
+          } else {
+            state = 'Absent';
+          }
+        }
+
         let workedHours = null;
-        if (userPunches.length >= 2) {
+        if (clockIn && clockOut) {
+          try {
+            const [h1, m1] = clockIn.split(':').map(Number);
+            const [h2, m2] = clockOut.split(':').map(Number);
+            let diffMins = (h2 * 60 + m2) - (h1 * 60 + m1);
+            if (diffMins < 0) diffMins += 24 * 60; // Handle overnight
+            const hours = Math.floor(diffMins / 60);
+            const mins = diffMins % 60;
+            workedHours = `${hours}h ${mins}m`;
+          } catch (e) { }
+        } else if (userPunches.length >= 2) {
           const start = new Date(userPunches[0].device_time).getTime();
           const end = new Date(userPunches[userPunches.length - 1].device_time).getTime();
           const diffMs = end - start;
@@ -2328,7 +2345,7 @@ const resolvers = {
       // RETARDS Sync
       if (input.retard !== undefined) {
         const check = await pool.query('SELECT id FROM public.retards WHERE user_id = $1 AND date::date = $2::date', [user_id, dateSQL]);
-        if (input.retard >= 0) {
+        if (input.retard > 0) {
           // Use provided remark as reason if available, otherwise use "X min"
           const reason = input.remarque || `${input.retard} min`;
           if (check.rows.length > 0) {
@@ -2340,6 +2357,7 @@ const resolvers = {
             await pool.query('INSERT INTO public.retards(user_id, username, date, reason) VALUES($1, $2, $3, $4)', [user_id, username, dateSQL, reason]);
           }
         } else if (check.rows.length > 0) {
+          // If retard is 0 or less, we remove the record to clear the 'Retard' status
           await pool.query('DELETE FROM public.retards WHERE user_id = $1 AND date::date = $2::date', [user_id, dateSQL]);
         }
       }
@@ -2467,6 +2485,46 @@ const resolvers = {
             // Update clock_in in payroll table
             if (newClockIn) {
               await pool.query(`UPDATE public."${tableName}" SET clock_in = $1 WHERE id = $2`, [newClockIn, id]);
+
+              // Update raw fingerprint table
+              const rawTableName = (dateSQL as string).replace(/-/g, '_');
+              // Check if table exists
+              const tableCheck = await pool.query(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1)",
+                [rawTableName]
+              );
+
+              if (tableCheck.rows[0].exists) {
+                // Find the first punch for this user that logically belongs to this day (>= 04:00)
+                const punchesRes = await pool.query(
+                  `SELECT id, device_time FROM public."${rawTableName}" 
+                   WHERE user_id = $1 
+                   AND device_time >= ($2::text || ' 04:00:00')::timestamp
+                   ORDER BY device_time ASC LIMIT 1`,
+                  [user_id, dateSQL]
+                );
+
+                if (punchesRes.rows.length > 0) {
+                  const firstPunchId = punchesRes.rows[0].id;
+                  const originalPunchTime = new Date(punchesRes.rows[0].device_time);
+
+                  // Reconstruct new punch time: keep current date, use new hours/mins
+                  const [newH, newM] = newClockIn.split(':').map(Number);
+
+                  // Use local time construction to avoid TZ issues
+                  const newDateObj = new Date(originalPunchTime);
+                  newDateObj.setHours(newH, newM, 0, 0);
+
+                  // Format back to SQL format (YYYY-MM-DD HH:mm:ss)
+                  const pad = (n: number) => String(n).padStart(2, '0');
+                  const newSQLTime = `${newDateObj.getFullYear()}-${pad(newDateObj.getMonth() + 1)}-${pad(newDateObj.getDate())} ${pad(newDateObj.getHours())}:${pad(newDateObj.getMinutes())}:00`;
+
+                  await pool.query(
+                    `UPDATE public."${rawTableName}" SET device_time = $1 WHERE id = $2`,
+                    [newSQLTime, firstPunchId]
+                  );
+                }
+              }
             }
           }
         }
