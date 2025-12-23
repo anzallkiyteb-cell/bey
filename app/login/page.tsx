@@ -75,14 +75,7 @@ export default function LoginPage() {
     login({ variables: { username: email, password } })
   }
 
-  const quickLogin = (role: "admin" | "manager") => {
-    setError("");
-    if (role === "admin") {
-      login({ variables: { username: "admin", password: "admin123" } });
-    } else {
-      login({ variables: { username: "manager", password: "manager123" } });
-    }
-  }
+
 
   return (
     <div className="relative flex min-h-screen items-center justify-center p-4 overflow-hidden">
@@ -164,27 +157,7 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <div className="mt-6 sm:mt-8 border-t border-[#c9b896] pt-6">
-          <p className="mb-4 text-center text-xs text-[#6b5744] font-medium">Connexion rapide</p>
-          <div className="space-y-2">
-            <Button
-              onClick={() => quickLogin("admin")}
-              variant="outline"
-              disabled={loading}
-              className="w-full border-[#8b5a2b] text-[#8b5a2b] hover:bg-[#8b5a2b] hover:text-white transition-all h-11 font-medium"
-            >
-              Connexion Admin
-            </Button>
-            <Button
-              onClick={() => quickLogin("manager")}
-              variant="outline"
-              disabled={loading}
-              className="w-full border-[#a0522d] text-[#a0522d] hover:bg-[#a0522d] hover:text-white transition-all h-11 font-medium"
-            >
-              Connexion Gérant
-            </Button>
-          </div>
-        </div>
+
       </Card>
     </div>
   )

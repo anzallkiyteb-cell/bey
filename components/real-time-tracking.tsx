@@ -30,6 +30,7 @@ const GET_PERSONNEL_STATUS = gql`
       state
       shift
       lastPunch
+      delay
     }
   }
 `
@@ -37,9 +38,22 @@ const GET_PERSONNEL_STATUS = gql`
 type FilterType = "tous" | "avec" | "sans"
 
 export function RealTimeTracking({ initialData }: { initialData?: any }) {
-  const today = new Date().toISOString().split("T")[0]
+  const getLogicalNow = () => {
+    const d = new Date();
+    if (d.getHours() < 4) {
+      d.setDate(d.getDate() - 1);
+    }
+    return d;
+  };
+
+  const logicalNow = getLogicalNow();
+  const year = logicalNow.getFullYear();
+  const month = String(logicalNow.getMonth() + 1).padStart(2, '0');
+  const day = String(logicalNow.getDate()).padStart(2, '0');
+  const todayStr = `${year}-${month}-${day}`;
+
   // Ideally, manage date as Date object for Calendar, string for API
-  const [date, setDate] = useState<Date | undefined>(new Date())
+  const [date, setDate] = useState<Date | undefined>(logicalNow)
   const [liveMonitorStart, setLiveMonitorStart] = useState<Date | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [filter, setFilter] = useState<FilterType>("tous")
@@ -49,19 +63,19 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
   const [isLiveFeedOpen, setIsLiveFeedOpen] = useState(false) // Added state
 
   // Format date for API
-  const formattedDate = date ? format(date, "yyyy-MM-dd") : today;
+  const formattedDate = date ? format(date, "yyyy-MM-dd") : todayStr;
 
   const { data: queryData, loading, error, refetch } = useQuery(GET_PERSONNEL_STATUS, {
     variables: { date: formattedDate },
     pollInterval: isLiveFeedOpen ? 5000 : 0, // Poll every 5s when live view is active
-    fetchPolicy: formattedDate === today && !isLiveFeedOpen ? "cache-first" : "cache-and-network",
+    fetchPolicy: formattedDate === todayStr && !isLiveFeedOpen ? "cache-first" : "cache-and-network",
     nextFetchPolicy: "cache-first",
-    skip: !!initialData && formattedDate === today && !isLiveFeedOpen,
+    skip: !!initialData && formattedDate === todayStr && !isLiveFeedOpen,
     notifyOnNetworkStatusChange: false,
   })
 
   // Merge initialData with queryData
-  const data = (formattedDate === today && initialData && !queryData) ? { personnelStatus: initialData } : queryData;
+  const data = (formattedDate === todayStr && initialData && !queryData) ? { personnelStatus: initialData } : queryData;
 
   // Start Real Time Monitor
   const handleStartRealTime = () => {
@@ -76,11 +90,10 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
   const employeeStatus = useMemo(() => {
     if (!data?.personnelStatus) return []
 
-    // Filter to show only active employees who are present or working
     return data.personnelStatus
       .filter((item: any) => {
-        // Filter out blocked users, people on Repos, people with "Non Connecté" status (too early), and Absent employees
-        return !item.user.is_blocked && item.state !== "Repos" && item.state !== "Non Connecté" && item.state !== "Absent"
+        // Filter out blocked users and admins from basic processing
+        return !item.user.is_blocked && item.user.role !== 'admin'
       })
       .map((item: any) => {
         const { user, clockIn, clockOut, shift, lastPunch, state: apiState } = item
@@ -113,29 +126,44 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
           shift: shift || "-",
           isConnected: !!clockIn || !!clockOut || apiState === 'Présent' || apiState === 'Retard',
           status: status,
+          delay: item.delay,
           lastPunch: lastPunch // ISO String
         }
       })
   }, [data])
 
-  // Apply filters
+  // Apply filters for the DISPLAY TABLE
   const filteredEmployees = useMemo(() => {
+    // START with all employees for this day
     let result = employeeStatus
 
-    // Search filter
-    if (searchQuery) {
-      result = result.filter(
-        (emp: any) =>
-          emp.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          emp.zktecoId?.includes(searchQuery)
-      )
+    // DEFAULT FILTER: If no explicit search/filter, only show "Active" people
+    // This keeps the dashboard empty/clean when nobody is working
+    if (!searchQuery && filter === "tous") {
+      result = result.filter((emp: any) =>
+        emp.status === "Présent" ||
+        emp.status === "Retard" ||
+        emp.status === "Terminé" ||
+        emp.status === "Missing_Exit"
+      );
     }
 
-    // Pointage filter
+    // Explicit Filter overrides
     if (filter === "avec") {
       result = result.filter((emp: any) => emp.isConnected)
     } else if (filter === "sans") {
-      result = result.filter((emp: any) => !emp.isConnected)
+      // Show people who SHOULD be here but aren't
+      result = employeeStatus.filter((emp: any) => !emp.isConnected && emp.status !== "Repos")
+    }
+
+    // Search re-expands to full list
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      result = employeeStatus.filter(
+        (emp: any) =>
+          emp.name?.toLowerCase().includes(searchLower) ||
+          emp.zktecoId?.includes(searchQuery)
+      )
     }
 
     return result
@@ -316,7 +344,7 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                   <div className="text-[#3d2c1e] font-mono text-center sm:text-left">{emp.clockOut}</div>
                   <div className="hidden sm:block text-[#3d2c1e] font-bold">{emp.shift}</div>
 
-                  <div className="flex justify-center sm:justify-start">
+                  <div className="flex flex-col justify-center sm:justify-start items-center sm:items-start gap-1">
                     <span
                       className={`inline-flex items-center rounded-full px-1.5 sm:px-3 py-0.5 sm:py-1 text-[8px] sm:text-xs font-black uppercase tracking-tighter sm:tracking-normal ${(emp.status === "Connecté" || emp.status === "Présent")
                         ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
@@ -333,6 +361,11 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                     >
                       {emp.status === "Missing_Exit" ? "Sortie Manquante" : (emp.status === "Connecté" ? "Présent" : emp.status)}
                     </span>
+                    {emp.status === "Retard" && emp.delay && (
+                      <span className="text-[9px] sm:text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-200 animate-pulse whitespace-nowrap">
+                        -{emp.delay}
+                      </span>
+                    )}
                   </div>
 
                   <div className="hidden sm:block font-medium text-[#3d2c1e]">{emp.hours.toFixed(1)}h</div>
@@ -382,7 +415,7 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
           <div className="flex items-center gap-2">
             <span className="h-3 w-3 rounded-full bg-rose-500"></span>
             <span className="text-[#6b5744]">
-              Absents: {employeeStatus.filter((e: any) => e.status === "Absent").length}
+              Absents: {employeeStatus.filter((e: any) => e.status === "Absent" || e.status === "Missing_Exit").length}
             </span>
           </div>
         </div>

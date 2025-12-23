@@ -50,6 +50,7 @@ const GET_DASHBOARD_DATA = gql`
       state
       shift
       lastPunch
+      delay
     }
     getRetards(date: $date) {
       id
@@ -153,16 +154,17 @@ function DashboardContent() {
     const presentCount = expectedToday.filter((p: any) => p.state === "Présent" || p.state === "Retard").length;
     const retardsCount = expectedToday.filter((p: any) => p.state === "Retard").length;
 
-    // Combined unique absences: Only Table records (excluding state "Absent" as they are false absences when work is closed)
-    // FIX: Filter out "Présent" type records from absents table (used for manual overrides)
-    const tableAbsentsIds = new Set((data.getAbsents || [])
-      .filter((a: any) => !['Présent', 'Justifié', 'present', 'justifié'].includes(a.type))
-      .map((a: any) => String(a.user_id)));
-    const statusAbsentsIds = new Set(expectedToday.filter((p: any) => p.state === "Missing_Exit" || p.state === "Absent").map((p: any) => String(p.user.id)));
-    const allAbsentUserIds = new Set([...Array.from(tableAbsentsIds), ...Array.from(statusAbsentsIds)]);
-    const absentsCount = allAbsentUserIds.size;
+    const absentsCount = validPersonnel.filter((p: any) => p.state === "Absent" || p.state === "Missing_Exit").length;
 
     const attendanceRate = expectedToday.length > 0 ? Math.round((presentCount / expectedToday.length) * 100) : 0;
+
+    const totalDelayMins = expectedToday.reduce((sum: number, p: any) => {
+      if (p.state === "Retard" && p.delay) {
+        const match = p.delay.match(/(\d+)/);
+        return sum + (match ? parseInt(match[1]) : 0);
+      }
+      return sum;
+    }, 0);
 
     return {
       advances,
@@ -175,6 +177,7 @@ function DashboardContent() {
       presentCount,
       retardsCount,
       absentsCount,
+      totalDelayMins,
       totalEmployees,
       attendanceRate,
       personnel
@@ -207,6 +210,7 @@ function DashboardContent() {
     presentCount = 0,
     retardsCount = 0,
     absentsCount = 0,
+    totalDelayMins = 0,
     totalEmployees = 0,
     attendanceRate = 0,
     personnel = []
@@ -291,8 +295,8 @@ function DashboardContent() {
                   title="En Retard"
                   value={retardsCount}
                   icon={Clock}
-                  color="bronze"
-                  change={`${retardsCount} foyers d'alerte`}
+                  color="red"
+                  change={`- ${totalDelayMins} min de retard total`}
                   trend={retardsCount > 0 ? "down" : "up"}
                   href="/attendance"
                 />
@@ -302,8 +306,8 @@ function DashboardContent() {
                   title="Absences"
                   value={absentsCount}
                   icon={AlertCircle}
-                  color="bronze"
-                  change={`${absentsCount} aujourd'hui`}
+                  color="red"
+                  change={`- ${absentsCount} aujourd'hui`}
                   trend={absentsCount > 0 ? "down" : "up"}
                   href="/attendance"
                 />

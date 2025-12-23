@@ -40,6 +40,7 @@ const typeDefs = `#graphql
     shift: String
     lastPunch: String
     workedHours: String
+    delay: String
     is_blocked: Boolean
   }
 
@@ -1685,30 +1686,48 @@ const resolvers = {
 
         // Determine State for Dashboard
         let state = 'Absent';
+        const hasPunches = userPunches.length > 1 || userPunches.length === 1; // Simplified for safety
 
         // Check manual overrides in Absents table
         const userAbsents = dayAbsents.filter((a: any) => a.user_id == user.id);
-        const isRetard = dayRetards.find((r: any) => r.user_id == user.id);
+        const currentRetardRecord = dayRetards.find((r: any) => r.user_id == user.id);
+
+        // Live Retard Detection
+        let liveDelay = null;
+        let isLiveRetard = false;
+        if (hasPunches && shiftType !== "Repos") {
+          let startHour = (shiftType === "Soir") ? 16 : 8; // Matin shift usually starts at 8-8:30, using 8 as base
+          const shiftStartTime = new Date(logicalDay);
+          shiftStartTime.setHours(startHour, 0, 0, 0);
+          const firstD = new Date(userPunches[0].device_time);
+          if (firstD > shiftStartTime) {
+            const diffMins = Math.floor((firstD.getTime() - shiftStartTime.getTime()) / 60000);
+            if (diffMins > 10) { // Only count if > 10 mins late
+              isLiveRetard = true;
+              liveDelay = `${diffMins} min`;
+            }
+          }
+        }
+
+        const isRetard = !!currentRetardRecord || isLiveRetard;
+        const delay = currentRetardRecord?.reason || liveDelay;
 
         const isManualPresent = userAbsents.some((a: any) => {
           const t = (a.type || "").toLowerCase().trim();
           return t === "présent" || t === "present" || t === "justifié" || t === "justifie";
         });
+        const isManualAbsent = userAbsents.length > 0 && !isManualPresent;
 
-        const isManualAbsent = userAbsents.some((a: any) => {
-          const t = (a.type || "").toLowerCase().trim();
-          return t === "absent" || t === "absence" || t === "injustifié" || t === "injustifie" || t === "mise à pied" || t === "mise a pied";
-        });
-
-        const hasPunches = userPunches.length > 0;
 
         // Check if we're querying for today and if it's too early to mark as absent
         const todayNow = new Date();
         const currentLogicalDate = getLogicalDate(todayNow);
         const isToday = formatDateLocal(logicalDay) === formatDateLocal(currentLogicalDate);
-        const currentHour = todayNow.getHours();
+        const currentHourReal = todayNow.getHours();
         const currentMin = todayNow.getMinutes();
-        const currentTotalMins = currentHour * 60 + currentMin;
+        // Adjust hour for logical day tail (00:00 - 04:00)
+        const adjustedHour = (currentHourReal < 4) ? currentHourReal + 24 : currentHourReal;
+        const currentTotalMins = adjustedHour * 60 + currentMin;
 
         // Intelligent Absence detection: if it's well past shift start, show as Absent
         let isOverdue = false;
@@ -1719,7 +1738,7 @@ const resolvers = {
         }
 
         const shiftEndLimit = (shiftType === "Soir") ? 23 : 16;
-        const isTooEarlyToMarkAbsent = isToday && !isOverdue && currentHour < shiftEndLimit;
+        const isTooEarlyToMarkAbsent = isToday && !isOverdue && adjustedHour < shiftEndLimit;
 
         // PRIORITY: Actual fingerprint punches override everything
         if (hasPunches) {
@@ -1741,8 +1760,8 @@ const resolvers = {
           state = 'Absent';
         } else if (shiftType === "Repos") {
           state = 'Repos';
-        } else if (isTooEarlyToMarkAbsent) {
-          // Too early to determine - show as their shift type or neutral status
+        } else if (isTooEarlyToMarkAbsent || logicalDay.getTime() > currentLogicalDate.getTime()) {
+          // Future work day or too early for today
           state = 'Non Connecté';
         } else {
           state = 'Absent';
@@ -1802,6 +1821,7 @@ const resolvers = {
           state,
           shift,
           workedHours,
+          delay,
           lastPunch: userPunches.length > 0 ? userPunches[userPunches.length - 1].device_time : null
         };
       });

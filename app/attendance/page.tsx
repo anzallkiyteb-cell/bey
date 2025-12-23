@@ -38,6 +38,7 @@ const GET_PERSONNEL_STATUS = gql`
       shift
       lastPunch
       workedHours
+      delay
     }
   }
 `;
@@ -192,9 +193,9 @@ function AttendanceContent() {
 
     // Filter by click-status
     if (statusFilter === "Present") {
-      filtered = filtered.filter((p: any) => p.state === "Présent");
+      filtered = filtered.filter((p: any) => p.state === "Présent" || p.state === "Retard");
     } else if (statusFilter === "Absent") {
-      filtered = filtered.filter((p: any) => p.state === "Absent");
+      filtered = filtered.filter((p: any) => p.state === "Absent" || p.state === "Missing_Exit");
     } else if (statusFilter === "Retard") {
       filtered = filtered.filter((p: any) => p.state === "Retard");
     } else if (statusFilter === "Repos") {
@@ -217,9 +218,9 @@ function AttendanceContent() {
 
   // Statistics base strictly on Personnel (Excluding admins)
   const validPersonnel = allPersonnel.filter((p: any) => p.user.role !== "admin");
-  const presentCount = validPersonnel.filter((p: any) => p.state === "Présent").length;
+  const presentCount = validPersonnel.filter((p: any) => p.state === "Présent" || p.state === "Retard").length;
   const retardCount = validPersonnel.filter((p: any) => p.state === "Retard").length;
-  const absentCount = validPersonnel.filter((p: any) => p.state === "Absent").length;
+  const absentCount = validPersonnel.filter((p: any) => p.state === "Absent" || p.state === "Missing_Exit").length;
   const reposCount = validPersonnel.filter((p: any) => p.state === "Repos").length;
   const totalCount = validPersonnel.length;
 
@@ -608,16 +609,23 @@ function AttendanceContent() {
                             )}
                           </td>
                           <td className="px-6 py-4">
-                            <span className={cn(
-                              "px-4 py-2 rounded-full text-[11px] font-black uppercase tracking-widest border shadow-sm",
-                              (person.state === "Présent" || person.state === "Retard")
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                : person.state === "Repos"
-                                  ? "bg-slate-50 text-slate-500 border-slate-200"
-                                  : "bg-rose-50 text-rose-700 border-rose-200"
-                            )}>
-                              {person.state}
-                            </span>
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className={cn(
+                                "px-4 py-2 rounded-full text-[11px] font-black uppercase tracking-widest border shadow-sm",
+                                (person.state === "Présent" || person.state === "Retard")
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  : person.state === "Repos"
+                                    ? "bg-slate-50 text-slate-500 border-slate-200"
+                                    : "bg-rose-50 text-rose-700 border-rose-200"
+                              )}>
+                                {person.state}
+                              </span>
+                              {person.state === "Retard" && person.delay && (
+                                <span className="text-[10px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-200 animate-pulse whitespace-nowrap">
+                                  🕒 -{person.delay}
+                                </span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))

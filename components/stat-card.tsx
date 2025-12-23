@@ -10,7 +10,7 @@ interface StatCardProps {
   change?: string
   icon: LucideIcon
   trend?: "up" | "down"
-  color: "bronze" | "copper" | "gold"
+  color: "bronze" | "copper" | "gold" | "red"
   href?: string
 }
 
@@ -20,6 +20,7 @@ export function StatCard({ title, value, change, icon: Icon, trend, color, href 
     bronze: "from-[#8b5a2b]/20 to-[#8b5a2b]/5 text-[#8b5a2b] border-[#8b5a2b]/30",
     copper: "from-[#a0522d]/20 to-[#a0522d]/5 text-[#a0522d] border-[#a0522d]/30",
     gold: "from-[#c9a227]/20 to-[#c9a227]/5 text-[#c9a227] border-[#c9a227]/30",
+    red: "from-red-200 to-red-50 text-red-600 border-red-300",
   }
 
   const handleClick = () => {
