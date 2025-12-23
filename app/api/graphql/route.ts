@@ -493,12 +493,9 @@ const fetchDayPunches = async (logicalDate: Date, userId: string | null = null) 
   const d2 = String(nextDay.getDate()).padStart(2, '0');
   const table2 = `${y2}_${m2}_${d2}`;
 
-  // Time boundaries - Explicit String Construction to match DB Local Time
-  // Start: logicalDate 05:00:00 (Expanded window to capture early arrivals)
-  const startStr = `${y1}-${m1}-${d1} 05:00:00`;
-
-  // End: nextDay 07:00:00 (Perfect 24h window: 07:00 to 07:00)
-  const endStr = `${y2}-${m2}-${d2} 07:00:00`;
+  // Time boundaries - Strict 24h window starting at 04:00 AM
+  const startStr = `${y1}-${m1}-${d1} 04:00:00`;
+  const endStr = `${y2}-${m2}-${d2} 04:00:00`;
 
   let punches: any[] = [];
 
@@ -862,12 +859,12 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
 
         if (userPunches.length === 0) {
           const isMatinOrDoublage = sTypeUpper === "MATIN" || sTypeUpper === "DOUBLAGE";
-          const shiftStartHour = isMatinOrDoublage ? 8 : 16;
-          const shiftStartMin = isMatinOrDoublage ? 30 : 30;
+          const shiftStartHour = isMatinOrDoublage ? 7 : 16;
+          const shiftStartMin = 0;
           const shiftStartTimeAbs = new Date(logicalDay);
           shiftStartTimeAbs.setHours(shiftStartHour, shiftStartMin, 0, 0);
 
-          // Threshold of 30 minutes late to consider auto-absent (reduced from 60 per user feedback)
+          // Threshold of 30 minutes late to consider auto-absent
           const thresholdTime = new Date(shiftStartTimeAbs.getTime() + 30 * 60000);
 
           const shiftEndHour = isMatinOrDoublage ? 16 : 23;
@@ -1654,15 +1651,6 @@ const resolvers = {
         let userPunches = punchesByUser.get(Number(user.id)) || [];
         userPunches.sort((a: any, b: any) => new Date(a.device_time).getTime() - new Date(b.device_time).getTime());
 
-        // Standardize punches logic
-        if (userPunches.length > 0) {
-          const firstD = new Date(userPunches[0].device_time);
-          const isNextDay = firstD.getDate() !== logicalDay.getDate();
-          if (isNextDay && firstD.getHours() >= 7) {
-            userPunches = [];
-          }
-        }
-
         let clockIn = null;
         let clockOut = null;
         let shift = (shiftType === "Repos") ? null : shiftType;
@@ -1671,20 +1659,14 @@ const resolvers = {
           // Override Repos for calculation
           if (shiftType === "Repos") shiftType = "Matin";
           const firstDate = new Date(userPunches[0].device_time);
-          const isNextDay = firstDate.getDate() !== logicalDay.getDate();
+          clockIn = formatTime(userPunches[0].device_time);
 
-          if (isNextDay) {
+          if (userPunches.length > 1) {
             clockOut = formatTime(userPunches[userPunches.length - 1].device_time);
-            shift = "Soir";
-          } else {
-            clockIn = formatTime(userPunches[0].device_time);
-            if (userPunches.length > 1) {
-              clockOut = formatTime(userPunches[userPunches.length - 1].device_time);
-            }
-            const lastDate = userPunches.length > 1 ? new Date(userPunches[userPunches.length - 1].device_time) : null;
-            const isOngoing = userPunches.length % 2 !== 0;
-            shift = determineShift(firstDate, lastDate, isOngoing);
           }
+          const lastDate = userPunches.length > 1 ? new Date(userPunches[userPunches.length - 1].device_time) : null;
+          const isOngoing = userPunches.length % 2 !== 0;
+          shift = determineShift(firstDate, lastDate, isOngoing);
         }
 
         // Determine State for Dashboard
@@ -1700,7 +1682,7 @@ const resolvers = {
         let liveDelay = null;
         let isLiveRetard = false;
         if (hasPunches && sTypeUpper !== "REPOS") {
-          let startHour = (sTypeUpper === "SOIR") ? 16 : 8; // Matin shift usually starts at 8-8:30, using 8 as base
+          let startHour = (sTypeUpper === "SOIR") ? 16 : 7; // Changed from 8 to 7 per user request
           const shiftStartTime = new Date(logicalDay);
           shiftStartTime.setHours(startHour, 0, 0, 0);
           const firstD = new Date(userPunches[0].device_time);
@@ -1736,11 +1718,11 @@ const resolvers = {
         // Intelligent Absence detection: if it's past shift start + grace period, show as Absent
         let isOverdue = false;
         if (sTypeUpper === "MATIN" || sTypeUpper === "DOUBLAGE") {
-          // Matin starts at 08:30. Overdue by 08:45 (15 min grace)
-          if (currentTotalMins > (8 * 60 + 45)) isOverdue = true;
+          // Matin starts at 07:00. Overdue by 07:15 (15 min grace)
+          if (currentTotalMins > (7 * 60 + 15)) isOverdue = true;
         } else if (sTypeUpper === "SOIR") {
-          // Soir starts at 16:30. Overdue by 16:45
-          if (currentTotalMins > (16 * 60 + 45)) isOverdue = true;
+          // Soir starts at 16:00. Overdue by 16:15
+          if (currentTotalMins > (16 * 60 + 15)) isOverdue = true;
         }
 
         const shiftEndLimit = (sTypeUpper === "SOIR") ? 23 : 16;
