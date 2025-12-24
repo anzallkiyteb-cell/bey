@@ -801,7 +801,7 @@ function AttendanceContent() {
 
                       {/* Footer Row: ID + Shift */}
                       <div className="flex items-center justify-between px-1">
-                        <span className="text-[10px] font-black text-[#8b5a2b]/40 uppercase">ID: {person.user.zktime_id || person.user.id}</span>
+                        <span className="text-[10px] font-black text-[#8b5a2b]/40 uppercase">{format(new Date(), 'dd/MM/yyyy')}</span>
                         <span className={cn(
                           "px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-tighter border",
                           person.shift === "Soir" ? "bg-indigo-50 text-indigo-700 border-indigo-100" :
