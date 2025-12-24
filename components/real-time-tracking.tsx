@@ -5,8 +5,9 @@ import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Search, ArrowUpRight, Radio, RefreshCw, Calendar as CalendarIcon } from "lucide-react"
-import { gql, useQuery } from "@apollo/client"
+import { gql, useQuery, useMutation } from "@apollo/client"
 import { AttendanceHistoryModal } from "./attendance-history-modal"
+import { PardonModal } from "./pardon-modal"
 import { LiveFeedModal } from "./live-feed-modal" // Added import
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
@@ -31,6 +32,19 @@ const GET_PERSONNEL_STATUS = gql`
       shift
       lastPunch
       delay
+      infraction
+      remarque
+    }
+  }
+`
+const PARDON_LATE = gql`
+  mutation PardonLate($userId: ID!, $date: String!) {
+    pardonLate(userId: $userId, date: $date) {
+      id
+      retard
+      infraction
+      clock_in
+      clock_out
     }
   }
 `
@@ -61,6 +75,35 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<{ id: string | null, name: string }>({ id: null, name: "" })
   const [isLiveFeedOpen, setIsLiveFeedOpen] = useState(false) // Added state
+  const [isPardonModalOpen, setIsPardonModalOpen] = useState(false)
+  const [pardonEmployee, setPardonEmployee] = useState<any>(null)
+
+  const [pardonLate] = useMutation(PARDON_LATE, {
+    onCompleted: () => {
+      refetch();
+    }
+  });
+
+  const handlePardonClick = (emp: any) => {
+    setPardonEmployee(emp);
+    setIsPardonModalOpen(true);
+  };
+
+  const handleConfirmPardon = async () => {
+    if (!pardonEmployee) return;
+    try {
+      await pardonLate({
+        variables: {
+          userId: pardonEmployee.id,
+          date: formattedDate
+        }
+      });
+      setIsPardonModalOpen(false);
+      setPardonEmployee(null);
+    } catch (e: any) {
+      alert("Erreur: " + e.message);
+    }
+  };
 
   // Format date for API
   const formattedDate = date ? format(date, "yyyy-MM-dd") : todayStr;
@@ -127,6 +170,8 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
           isConnected: !!clockIn || !!clockOut || apiState === 'Présent' || apiState === 'Retard',
           status: status,
           delay: item.delay,
+          infraction: item.infraction,
+          remarque: item.remarque,
           lastPunch: lastPunch // ISO String
         }
       })
@@ -311,7 +356,7 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
               <div className="hidden sm:block">Shift</div>
               <div className="text-center sm:text-left">État</div>
               <div className="hidden sm:block">Heures</div>
-              <div className="text-right sm:text-left">Action</div>
+              <div className="text-center sm:text-right">Action</div>
             </div>
 
             {/* Table Body */}
@@ -320,8 +365,17 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                 <div key={emp.id} className="grid grid-cols-6 sm:grid-cols-9 gap-1 sm:gap-4 py-3 sm:py-4 items-center text-[10px] sm:text-sm">
                   <div className="hidden sm:block text-[#6b5744] font-mono">{emp.zktecoId}</div>
 
-                  <div className="col-span-2 sm:col-span-1 font-bold sm:font-semibold text-[#3d2c1e] uppercase flex items-center gap-1 sm:gap-2 min-w-0">
-                    <div className="h-6 w-6 sm:h-8 sm:w-8 rounded-full bg-[#8b5a2b]/10 flex items-center justify-center text-[#8b5a2b] font-bold overflow-hidden border border-[#c9b896]/30 shrink-0">
+                  <div
+                    className={cn(
+                      "col-span-2 sm:col-span-1 font-bold sm:font-semibold text-[#3d2c1e] uppercase flex items-center gap-1 sm:gap-2 min-w-0 group",
+                      emp.status === "Retard" && "cursor-pointer"
+                    )}
+                    onClick={() => emp.status === "Retard" && handlePardonClick(emp)}
+                  >
+                    <div className={cn(
+                      "h-6 w-6 sm:h-8 sm:w-8 rounded-full bg-[#8b5a2b]/10 flex items-center justify-center text-[#8b5a2b] font-bold overflow-hidden border border-[#c9b896]/30 shrink-0 transition-all",
+                      emp.status === "Retard" && "group-hover:scale-110 group-hover:border-[#8b5a2b] ring-offset-2 group-hover:ring-2 ring-amber-400"
+                    )}>
                       {emp.photo ? (
                         <img src={emp.photo} alt="" className="w-full h-full object-cover" />
                       ) : (
@@ -329,7 +383,7 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                       )}
                     </div>
                     <div className="flex flex-col min-w-0 text-[9px] sm:text-sm">
-                      <span className="truncate leading-tight font-semibold">{emp.name}</span>
+                      <span className="truncate leading-tight font-semibold group-hover:text-[#8b5a2b] transition-colors">{emp.name}</span>
                       <span className="text-[10px] sm:text-xs text-[#8b5a2b] font-bold truncate">
                         📅 {format(date || new Date(), 'dd/MM/yyyy')}
                       </span>
@@ -346,18 +400,20 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
 
                   <div className="flex flex-col justify-center sm:justify-start items-center sm:items-start gap-1">
                     <span
-                      className={`inline-flex items-center rounded-full px-1.5 sm:px-3 py-0.5 sm:py-1 text-[8px] sm:text-xs font-black uppercase tracking-tighter sm:tracking-normal ${(emp.status === "Connecté" || emp.status === "Présent")
-                        ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
-                        : emp.status === "Terminé"
-                          ? "bg-blue-100 text-blue-700 border border-blue-300"
-                          : emp.status === "Retard"
-                            ? "bg-amber-100 text-amber-700 border border-amber-300"
-                            : emp.status === "Missing_Exit"
-                              ? "bg-orange-100 text-orange-700 border border-orange-300"
-                              : emp.status === "Repos"
-                                ? "bg-slate-100 text-slate-700 border border-slate-300"
-                                : "bg-rose-100 text-rose-700 border border-rose-300"
-                        }`}
+                      className={cn(
+                        "inline-flex items-center rounded-full px-1.5 sm:px-3 py-0.5 sm:py-1 text-[9px] sm:text-xs font-bold uppercase tracking-tight sm:tracking-normal transition-all",
+                        (emp.status === "Connecté" || emp.status === "Présent")
+                          ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                          : emp.status === "Terminé"
+                            ? "bg-blue-100 text-blue-700 border border-blue-300"
+                            : emp.status === "Retard"
+                              ? "bg-amber-100 text-amber-700 border border-amber-300"
+                              : emp.status === "Missing_Exit"
+                                ? "bg-orange-100 text-orange-700 border border-orange-300"
+                                : emp.status === "Repos"
+                                  ? "bg-slate-100 text-slate-700 border border-slate-300"
+                                  : "bg-rose-100 text-rose-700 border border-rose-300"
+                      )}
                     >
                       {emp.status === "Missing_Exit" ? "Sortie Manquante" : (emp.status === "Connecté" ? "Présent" : emp.status)}
                     </span>
@@ -372,17 +428,18 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                     {emp.totalMins > 0 ? `${Math.floor(emp.totalMins / 60)}h ${emp.totalMins % 60}m` : "0h"}
                   </div>
 
-                  <div className="text-right sm:text-left">
+                  <div className="text-center sm:text-right">
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
-                      className="h-6 w-6 sm:h-8 sm:w-8 p-0 text-[#8b5a2b] hover:bg-[#f5f0e8]"
+                      className="h-8 w-8 sm:h-9 sm:w-9 p-0 text-[#8b5a2b] border-[#c9b896] hover:bg-[#8b5a2b] hover:text-white transition-all shadow-sm"
+                      title="Voir l'historique"
                       onClick={() => {
                         setSelectedUser({ id: emp.id, name: emp.name });
                         setIsModalOpen(true);
                       }}
                     >
-                      <ArrowUpRight className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <ArrowUpRight className="h-4 w-4 sm:h-5 sm:w-5" />
                     </Button>
                   </div>
                 </div>
@@ -435,6 +492,13 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
         onClose={() => setIsLiveFeedOpen(false)}
         startTime={liveMonitorStart}
         data={employeeStatus}
+      />
+
+      <PardonModal
+        isOpen={isPardonModalOpen}
+        onClose={() => setIsPardonModalOpen(false)}
+        onConfirm={handleConfirmPardon}
+        employee={pardonEmployee}
       />
     </div >
   )

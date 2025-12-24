@@ -402,8 +402,8 @@ export default function UserFichePage() {
                     {/* Printable Sheet */}
                     <Card className="bg-white border-[#c9b896] shadow-xl p-8 sm:p-12 print:p-2 print:border-px print:border-[#3d2c1e] print:shadow-none min-h-[900px] print:min-h-0 print:w-full print:rounded-none card-print">
                         {/* Header section identical to photo */}
-                        <div className="grid grid-cols-2 border border-[#3d2c1e] print:text-[12px] print:p-0">
-                            <div className="p-4 print:p-2 border-r border-b border-[#3d2c1e] space-y-1">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 border border-[#3d2c1e] print:text-[12px] print:p-0">
+                            <div className="p-4 print:p-2 border-r sm:border-r border-b border-[#3d2c1e] space-y-1">
                                 <p className="text-sm print:text-[11.5px]"><strong>Nom:</strong> {user.username.split(' ')[1] || ""}</p>
                                 <p className="text-sm print:text-[11.5px]"><strong>Prénom:</strong> {user.username.split(' ')[0] || ""}</p>
                                 <p className="text-sm print:text-[11.5px]"><strong>Poste:</strong> {user.departement}</p>
@@ -416,84 +416,137 @@ export default function UserFichePage() {
                             </div>
                         </div>
                         {/* Main Table */}
-                        <div className="mt-2 print:mt-2 print:overflow-visible">
-                            <table className="w-full border-collapse border border-[#3d2c1e] print:text-[10px] print:leading-none">
-                                <thead>
-                                    <tr className="bg-[#f8f6f1]/50">
-                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-left w-24">Date</th>
-                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-left w-24">Jour</th>
-                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Présence</th>
-                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Retard</th>
-                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Entrée</th>
-                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Sortie</th>
-                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Acompte</th>
-                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Extra</th>
-                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-20">Double</th>
-                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Prime</th>
-                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Infraction</th>
-                                        <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-left">Remarque</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {payroll.map((record: any) => {
-                                        const date = new Date(record.date)
-                                        const dayName = format(date, "eeee", { locale: fr })
-                                        const isWeekend = date.getDay() === 0 // Dimanche
-
-                                        return (
-                                            <tr key={record.id} onClick={() => startEdit(record)} className={cn("hover:bg-[#f8f6f1]/30 cursor-pointer transition-colors group", isWeekend && "bg-gray-50")}>
-                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] group-hover:bg-[#8b5a2b]/5 transition-colors">{format(date, "dd/MM/yyyy")}</td>
-                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] capitalize group-hover:bg-[#8b5a2b]/5 transition-colors">{dayName}</td>
-                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-bold group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                    {record.present === 1 ? "1" : record.present === 0 ? "0" : ""}
-                                                </td>
-                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center text-orange-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                    {record.retard > 0 ? formatDuration(record.retard) : "-"}
-                                                </td>
-                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-mono group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                    {record.clock_in || "-"}
-                                                </td>
-                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-mono group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                    {record.clock_out || "-"}
-                                                </td>
-                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                    {record.acompte > 0 ? `${record.acompte} DT` : ""}
-                                                </td>
-                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-emerald-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                    {record.extra > 0 ? `${record.extra} DT` : ""}
-                                                </td>
-                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-cyan-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                    {record.doublage > 0 ? `${record.doublage} DT` : ""}
-                                                </td>
-                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-blue-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                    {record.prime > 0 ? `${record.prime} DT` : "-"}
-                                                </td>
-                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-red-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                    {record.infraction > 0 ? `${record.infraction} DT` : "-"}
-                                                </td>
-                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] italic group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                    {record.remarque || (record.present === 0 ? "ABSENT" : "")}
-                                                </td>
-                                            </tr>
-                                        )
-                                    })}
-
-                                    {/* Empty rows if needed to fill space */}
-                                    {payroll.length < 5 && Array.from({ length: 5 - payroll.length }).map((_, i) => (
-                                        <tr key={`empty-${i}`} className="h-8 print:h-4">
-                                            <td className="border border-[#3d2c1e]"></td>
-                                            <td className="border border-[#3d2c1e]"></td>
-                                            <td className="border border-[#3d2c1e]"></td>
-                                            <td className="border border-[#3d2c1e]"></td>
-                                            <td className="border border-[#3d2c1e]"></td>
-                                            <td className="border border-[#3d2c1e]"></td>
-                                            <td className="border border-[#3d2c1e]"></td>
-                                            <td className="border border-[#3d2c1e]"></td>
-                                            <td className="border border-[#3d2c1e]"></td>
+                        <div className="mt-2 print:mt-2">
+                            {/* Desktop View (Table) - Hidden on mobile, visible on desktop/print */}
+                            <div className="hidden md:block print:block overflow-x-auto">
+                                <table className="w-full border-collapse border border-[#3d2c1e] print:text-[10px] print:leading-none">
+                                    <thead>
+                                        <tr className="bg-[#f8f6f1]/50">
+                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-left w-24">Date</th>
+                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-left w-24">Jour</th>
+                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Présence</th>
+                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Retard</th>
+                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Entrée</th>
+                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Sortie</th>
+                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Acompte</th>
+                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Extra</th>
+                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-20">Double</th>
+                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Prime</th>
+                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Infraction</th>
+                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-left">Remarque</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        {payroll.map((record: any) => {
+                                            const date = new Date(record.date)
+                                            const dayName = format(date, "eeee", { locale: fr })
+                                            const isWeekend = date.getDay() === 0 // Dimanche
+
+                                            return (
+                                                <tr key={record.id} onClick={() => startEdit(record)} className={cn("hover:bg-[#f8f6f1]/30 cursor-pointer transition-colors group", isWeekend && "bg-gray-50")}>
+                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] group-hover:bg-[#8b5a2b]/5 transition-colors">{format(date, "dd/MM/yyyy")}</td>
+                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] capitalize group-hover:bg-[#8b5a2b]/5 transition-colors">{dayName}</td>
+                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-bold group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                        {record.present === 1 ? "1" : record.present === 0 ? "0" : ""}
+                                                    </td>
+                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center text-orange-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                        {record.retard > 0 ? formatDuration(record.retard) : "-"}
+                                                    </td>
+                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-mono group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                        {record.clock_in || "-"}
+                                                    </td>
+                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-mono group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                        {record.clock_out || "-"}
+                                                    </td>
+                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                        {record.acompte > 0 ? `${record.acompte} DT` : ""}
+                                                    </td>
+                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-emerald-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                        {record.extra > 0 ? `${record.extra} DT` : ""}
+                                                    </td>
+                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-cyan-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                        {record.doublage > 0 ? `${record.doublage} DT` : ""}
+                                                    </td>
+                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-blue-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                        {record.prime > 0 ? `${record.prime} DT` : "-"}
+                                                    </td>
+                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-red-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                        {record.infraction > 0 ? `${record.infraction} DT` : "-"}
+                                                    </td>
+                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] italic group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                        {record.remarque || (record.present === 0 ? "ABSENT" : "")}
+                                                    </td>
+                                                </tr>
+                                            )
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Mobile Card View - Visible only on small screens */}
+                            <div className="md:hidden space-y-4 pt-4 print:hidden">
+                                {payroll.map((record: any) => {
+                                    const date = new Date(record.date)
+                                    const dayName = format(date, "eeee", { locale: fr })
+                                    const isWeekend = date.getDay() === 0
+
+                                    return (
+                                        <div
+                                            key={record.id}
+                                            onClick={() => startEdit(record)}
+                                            className={cn(
+                                                "p-4 rounded-2xl border-2 transition-all active:scale-[0.98]",
+                                                isWeekend ? "bg-amber-50/30 border-[#c9b896]/30" : "bg-white border-[#c9b896]/20 shadow-sm"
+                                            )}
+                                        >
+                                            <div className="flex justify-between items-start mb-3 border-b border-[#c9b896]/20 pb-2">
+                                                <div>
+                                                    <p className="text-xs text-[#8b5a2b] font-bold">{format(date, "dd MMMM yyyy", { locale: fr })}</p>
+                                                    <p className="text-[10px] uppercase font-black text-[#6b5744] opacity-60 tracking-widest">{dayName}</p>
+                                                </div>
+                                                <div className={cn(
+                                                    "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider",
+                                                    record.present === 1 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                                                )}>
+                                                    {record.present === 1 ? "Présent" : "Absent"}
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-3 mb-4">
+                                                <div className="bg-[#f8f6f1] p-2 rounded-xl border border-[#c9b896]/20">
+                                                    <p className="text-[9px] font-black uppercase text-[#8b5a2b] mb-1">Pointage</p>
+                                                    <div className="flex gap-2 font-mono text-xs">
+                                                        <span className="text-emerald-700">{record.clock_in || "---"}</span>
+                                                        <span className="text-[#6b5744]">→</span>
+                                                        <span className="text-rose-700">{record.clock_out || "---"}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="bg-[#f8f6f1] p-2 rounded-xl border border-[#c9b896]/20">
+                                                    <p className="text-[9px] font-black uppercase text-[#8b5a2b] mb-1">Retard</p>
+                                                    <p className={cn("text-xs font-bold", record.retard > 0 ? "text-orange-600" : "text-gray-400")}>
+                                                        {record.retard > 0 ? formatDuration(record.retard) : "Aucun"}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {/* Financials in Card */}
+                                            <div className="flex flex-wrap gap-2 mb-3">
+                                                {record.acompte > 0 && <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded text-[10px] font-bold">Acompte: {record.acompte} DT</span>}
+                                                {record.extra > 0 && <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 border border-emerald-100 rounded text-[10px] font-bold">Extra: {record.extra} DT</span>}
+                                                {record.doublage > 0 && <span className="bg-cyan-50 text-cyan-700 px-2 py-0.5 border border-cyan-100 rounded text-[10px] font-bold">Double: {record.doublage} DT</span>}
+                                                {record.prime > 0 && <span className="bg-blue-50 text-blue-700 px-2 py-0.5 border border-blue-100 rounded text-[10px] font-bold">Prime: {record.prime} DT</span>}
+                                                {record.infraction > 0 && <span className="bg-rose-50 text-rose-700 px-2 py-0.5 border border-rose-100 rounded text-[10px] font-bold">Infraction: {record.infraction} DT</span>}
+                                            </div>
+
+                                            {record.remarque && (
+                                                <div className="bg-gray-50 border border-gray-100 p-2 rounded-lg italic text-[10px] text-[#6b5744]">
+                                                    "{record.remarque}"
+                                                </div>
+                                            )}
+                                        </div>
+                                    )
+                                })}
+                            </div>
                         </div>
 
                         {/* Footer Summaries - Redesigned as a single cohesive block */}

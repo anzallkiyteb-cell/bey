@@ -17,6 +17,7 @@ import { getCurrentUser } from "@/lib/mock-data"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { startOfMonth, endOfMonth } from "date-fns"
+import { PardonModal } from "@/components/pardon-modal"
 
 const GET_PERSONNEL_STATUS = gql`
   query GetPersonnelStatus($date: String) {
@@ -39,6 +40,20 @@ const GET_PERSONNEL_STATUS = gql`
       lastPunch
       workedHours
       delay
+      infraction
+      remarque
+    }
+  }
+`;
+
+const PARDON_LATE = gql`
+  mutation PardonLate($userId: ID!, $date: String!) {
+    pardonLate(userId: $userId, date: $date) {
+      id
+      retard
+      infraction
+      clock_in
+      clock_out
     }
   }
 `;
@@ -98,6 +113,8 @@ function AttendanceContent() {
   const [selectedPerformer, setSelectedPerformer] = useState<any>(null)
   const [primeAmount, setPrimeAmount] = useState("")
   const [primeDate, setPrimeDate] = useState<Date>(new Date())
+  const [isPardonModalOpen, setIsPardonModalOpen] = useState(false)
+  const [pardonEmployee, setPardonEmployee] = useState<any>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const searchParams = useSearchParams()
   const userIdParam = searchParams.get("userId")
@@ -126,7 +143,7 @@ function AttendanceContent() {
 
   const formattedDate = format(date, "yyyy-MM-dd");
 
-  const { data, loading, error } = useQuery(GET_PERSONNEL_STATUS, {
+  const { data, loading, error, refetch } = useQuery(GET_PERSONNEL_STATUS, {
     variables: {
       date: formattedDate
     },
@@ -134,6 +151,41 @@ function AttendanceContent() {
     nextFetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: false,
   });
+
+  const [pardonLate] = useMutation(PARDON_LATE, {
+    onCompleted: () => {
+      refetch();
+    }
+  });
+
+  const handlePardonClick = (person: any) => {
+    // Map person structure to modal expectations
+    setPardonEmployee({
+      id: person.user.id,
+      name: person.user.username,
+      delay: person.delay,
+      infraction: person.infraction,
+      remarque: person.remarque,
+      clockIn: person.clockIn || "--:--"
+    });
+    setIsPardonModalOpen(true);
+  };
+
+  const handleConfirmPardon = async () => {
+    if (!pardonEmployee) return;
+    try {
+      await pardonLate({
+        variables: {
+          userId: pardonEmployee.id,
+          date: formattedDate
+        }
+      });
+      setIsPardonModalOpen(false);
+      setPardonEmployee(null);
+    } catch (e: any) {
+      alert("Erreur: " + e.message);
+    }
+  };
 
   const monthStart = format(startOfMonth(date), "yyyy-MM-dd");
   const monthEnd = format(endOfMonth(date), "yyyy-MM-dd");
@@ -567,15 +619,27 @@ function AttendanceContent() {
                             <span className="text-xs font-black text-[#8b5a2b] opacity-40 bg-[#8b5a2b]/5 px-2 py-1 rounded">#{person.user.id}</span>
                           </td>
                           <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 rounded-full bg-gradient-to-br from-[#8b5a2b] to-[#c9b896] flex items-center justify-center text-white font-black text-sm shadow-md overflow-hidden border border-[#c9b896]/30">
+                            <div
+                              className={cn(
+                                "flex items-center gap-3 group/item transition-all",
+                                (person.state === "Retard" || person.state === "Absent" || person.state === "Missing_Exit") && "cursor-pointer"
+                              )}
+                              onClick={() => (person.state === "Retard" || person.state === "Absent" || person.state === "Missing_Exit") && handlePardonClick(person)}
+                            >
+                              <div className={cn(
+                                "h-10 w-10 rounded-full bg-gradient-to-br from-[#8b5a2b] to-[#c9b896] flex items-center justify-center text-white font-black text-sm shadow-md overflow-hidden border border-[#c9b896]/30 transition-transform",
+                                (person.state === "Retard" || person.state === "Absent" || person.state === "Missing_Exit") && "group-hover/item:scale-110 group-hover/item:border-[#8b5a2b] ring-offset-2 group-hover/item:ring-2 ring-amber-400"
+                              )}>
                                 {person.user.photo ? (
                                   <img src={person.user.photo} alt={person.user.username} className="w-full h-full object-cover" />
                                 ) : (
                                   person.user.username?.substring(0, 2).toUpperCase()
                                 )}
                               </div>
-                              <span className="font-bold text-[#3d2c1e] text-lg">{person.user.username}</span>
+                              <span className={cn(
+                                "font-bold text-[#3d2c1e] text-lg transition-colors",
+                                (person.state === "Retard" || person.state === "Absent" || person.state === "Missing_Exit") && "group-hover/item:text-[#8b5a2b]"
+                              )}>{person.user.username}</span>
                             </div>
                           </td>
                           <td className="px-6 py-4">
@@ -732,6 +796,13 @@ function AttendanceContent() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <PardonModal
+        isOpen={isPardonModalOpen}
+        onClose={() => setIsPardonModalOpen(false)}
+        onConfirm={handleConfirmPardon}
+        employee={pardonEmployee}
+      />
     </div>
   )
 }

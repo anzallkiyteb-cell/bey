@@ -41,6 +41,8 @@ const typeDefs = `#graphql
     lastPunch: String
     workedHours: String
     delay: String
+    infraction: Float
+    remarque: String
     is_blocked: Boolean
   }
 
@@ -249,6 +251,7 @@ const typeDefs = `#graphql
     markNotificationsAsRead(userId: ID!): Boolean
     markNotificationAsRead(id: ID!): Boolean
     deleteOldNotifications: Boolean
+    pardonLate(userId: ID!, date: String!): PayrollRecord
   }
 `;
 
@@ -1042,8 +1045,8 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
           mise_a_pied = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".mise_a_pied ELSE EXCLUDED.mise_a_pied END,
           retard = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".retard ELSE EXCLUDED.retard END,
           remarque = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".remarque ELSE EXCLUDED.remarque END,
-          clock_in = EXCLUDED.clock_in,
-          clock_out = EXCLUDED.clock_out`,
+          clock_in = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".clock_in ELSE EXCLUDED.clock_in END,
+          clock_out = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".clock_out ELSE EXCLUDED.clock_out END`,
       [finalPresent, totalAdvance, dayExtra, dayPrime, dayInfraction, dayDoublage, miseAPiedDays, retardMins, finalRemark, user.id, dateSQL, user.username, clockIn, clockOut]
     );
   }));
@@ -1818,6 +1821,8 @@ const resolvers = {
           shift,
           workedHours,
           delay,
+          infraction: userPayroll ? parseFloat(userPayroll.infraction || 0) : 0,
+          remarque: userPayroll ? userPayroll.remarque : null,
           lastPunch: userPunches.length > 0 ? userPunches[userPunches.length - 1].device_time : null
         };
       });
@@ -2658,6 +2663,65 @@ const resolvers = {
     deleteOldNotifications: async () => {
       await cleanOldNotifications();
       return true;
+    },
+    pardonLate: async (_: any, { userId, date }: { userId: string, date: string }, context: any) => {
+      const dateSQL = formatDateLocal(date);
+      if (!dateSQL) throw new Error("Invalid date format");
+      const monthKey = dateSQL.substring(0, 7).replace('-', '_');
+      const tableName = `paiecurrent_${monthKey}`;
+
+      await initializePayrollTable(monthKey);
+
+      let record = (await pool.query(`SELECT * FROM public."${tableName}" WHERE user_id = $1 AND date = $2`, [userId, dateSQL])).rows[0];
+      if (!record) {
+        await recomputePayrollForDate(dateSQL, userId);
+        record = (await pool.query(`SELECT * FROM public."${tableName}" WHERE user_id = $1 AND date = $2`, [userId, dateSQL])).rows[0];
+      }
+      if (!record) throw new Error("Payroll record not found for this user and date.");
+
+      const scheduleRes = await pool.query('SELECT * FROM public.user_schedules WHERE user_id = $1', [userId]);
+      const schedule = scheduleRes.rows[0];
+      const userRes = await pool.query('SELECT username, "département" as departement FROM public.users WHERE id = $1', [userId]);
+      if (userRes.rows.length === 0) throw new Error("User not found");
+      const { username, departement } = userRes.rows[0];
+
+      let targetClockIn = record.clock_in;
+      let targetClockOut = record.clock_out;
+
+      if (schedule) {
+        const dayOfWeekIndex = new Date(dateSQL + 'T12:00:00').getDay();
+        const dayCols = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
+        const shiftType = schedule[dayCols[dayOfWeekIndex]] || "Matin";
+
+        if (departement === 'Chef_Cuisine') {
+          targetClockIn = "11:00";
+        } else {
+          if (shiftType === "Soir") targetClockIn = "16:00";
+          else targetClockIn = "07:00";
+        }
+
+        // Only override clock_out if user is already finished or if they specifically left early causing issues
+        // If Matin shift normally ends at 16:00
+        if (shiftType === "Matin" && targetClockOut && targetClockOut < "16:00") {
+          targetClockOut = "16:00";
+        }
+      }
+
+      await pool.query(
+        `UPDATE public."${tableName}" 
+         SET retard = 0, infraction = 0, clock_in = $2, clock_out = $3, remarque = 'Pardonné', updated = TRUE 
+         WHERE id = $1`,
+        [record.id, targetClockIn, targetClockOut]
+      );
+
+      await pool.query('DELETE FROM public.retards WHERE user_id = $1 AND date::date = $2::date', [userId, dateSQL]);
+      await pool.query(`DELETE FROM public.extras WHERE user_id = $1 AND date_extra::date = $2::date AND LOWER(motif) LIKE 'infraction%'`, [userId, dateSQL]);
+
+      await createNotification('system', "Pointage Pardonné", `Le retard de ${username} pour le ${dateSQL} a été annulé (Pardon).`, userId, context.userDone);
+      invalidateCache();
+
+      const final = await pool.query(`SELECT * FROM public."${tableName}" WHERE id = $1`, [record.id]);
+      return { ...final.rows[0], date: formatDateLocal(final.rows[0].date) };
     }
   },
   User: {

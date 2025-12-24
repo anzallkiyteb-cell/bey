@@ -54,35 +54,35 @@ export function AttendanceHistoryModal({ userId, userName, isOpen, onClose }: At
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[700px] bg-white border-[#c9b896]">
+            <DialogContent className="w-[95vw] sm:max-w-[700px] md:max-w-[850px] max-h-[90vh] bg-white border-[#c9b896] p-3 sm:p-6 overflow-hidden flex flex-col">
                 <DialogHeader>
-                    <DialogTitle className="text-[#8b5a2b] font-[family-name:var(--font-heading)] text-2xl">
+                    <DialogTitle className="text-[#8b5a2b] font-[family-name:var(--font-heading)] text-xl sm:text-2xl text-center sm:text-left">
                         Historique de {userName}
                     </DialogTitle>
-                    <DialogDescription>
+                    <DialogDescription className="text-center sm:text-left">
                         Consultez les pointages sur une période donnée (Journée logique 05h-05h).
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="flex gap-4 items-end my-4">
-                    <div className="grid w-full max-w-sm items-center gap-1.5">
-                        <Label htmlFor="start">Du</Label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 my-4">
+                    <div className="space-y-1.5">
+                        <Label htmlFor="start" className="text-[#6b5744] font-medium text-sm">Du</Label>
                         <Input
                             type="date"
                             id="start"
                             value={startDate}
                             onChange={(e) => setStartDate(e.target.value)}
-                            className="bg-[#faf8f5] border-[#c9b896]"
+                            className="bg-[#faf8f5] border-[#c9b896] text-[#3d2c1e] focus-visible:ring-[#8b5a2b] h-10"
                         />
                     </div>
-                    <div className="grid w-full max-w-sm items-center gap-1.5">
-                        <Label htmlFor="end">Au</Label>
+                    <div className="space-y-1.5">
+                        <Label htmlFor="end" className="text-[#6b5744] font-medium text-sm">Au</Label>
                         <Input
                             type="date"
                             id="end"
                             value={endDate}
                             onChange={(e) => setEndDate(e.target.value)}
-                            className="bg-[#faf8f5] border-[#c9b896]"
+                            className="bg-[#faf8f5] border-[#c9b896] text-[#3d2c1e] focus-visible:ring-[#8b5a2b] h-10"
                         />
                     </div>
                 </div>
@@ -100,36 +100,74 @@ export function AttendanceHistoryModal({ userId, userName, isOpen, onClose }: At
                 )}
 
                 {!loading && data && (
-                    <div className="border border-[#c9b896] rounded-md overflow-hidden max-h-[400px] overflow-y-auto">
-                        <table className="w-full text-sm">
-                            <thead className="bg-[#f8f6f1] border-b border-[#c9b896]">
-                                <tr>
-                                    <th className="p-3 text-left font-medium text-[#6b5744]">Date</th>
-                                    <th className="p-3 text-left font-medium text-[#6b5744]">Entrée</th>
-                                    <th className="p-3 text-left font-medium text-[#6b5744]">Sortie</th>
-                                    <th className="p-3 text-left font-medium text-[#6b5744]">Shift</th>
-                                    <th className="p-3 text-left font-medium text-[#6b5744]">Détails (Raw)</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-[#e8e0d5]">
-                                {data.userAttendanceHistory.map((record: any, idx: number) => (
-                                    <tr key={idx} className="hover:bg-[#fcfbf9]">
-                                        <td className="p-3 text-[#3d2c1e]">{record.date}</td>
-                                        <td className="p-3 font-medium text-emerald-700">{record.clockIn || "-"}</td>
-                                        <td className="p-3 font-medium text-blue-700">{record.clockOut || "-"}</td>
-                                        <td className="p-3 text-[#3d2c1e] font-semibold">{record.shift || "-"}</td>
-                                        <td className="p-3 text-xs text-gray-500">
-                                            {record.raw_punches?.join(', ') || ""}
-                                        </td>
-                                    </tr>
-                                ))}
-                                {data.userAttendanceHistory.length === 0 && (
+                    <div className="flex-1 overflow-y-auto px-1">
+                        {/* Desktop Table View */}
+                        <div className="hidden sm:block border border-[#c9b896] rounded-lg overflow-hidden shadow-sm bg-white">
+                            <table className="w-full text-sm border-collapse">
+                                <thead className="bg-[#f8f6f1] border-b border-[#c9b896]">
                                     <tr>
-                                        <td colSpan={5} className="p-4 text-center text-gray-500">Aucune donnée sur cette période</td>
+                                        <th className="p-3 text-left font-bold text-[#6b5744] text-[11px] uppercase tracking-wider">Date</th>
+                                        <th className="p-3 text-left font-bold text-[#6b5744] text-[11px] uppercase tracking-wider">Entrée</th>
+                                        <th className="p-3 text-left font-bold text-[#6b5744] text-[11px] uppercase tracking-wider">Sortie</th>
+                                        <th className="p-3 text-left font-bold text-[#6b5744] text-[11px] uppercase tracking-wider">Shift</th>
+                                        <th className="p-3 text-left font-bold text-[#6b5744] text-[11px] uppercase tracking-wider">Détails (Raw)</th>
                                     </tr>
-                                )}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody className="divide-y divide-[#e8e0d5]">
+                                    {data.userAttendanceHistory.map((record: any, idx: number) => (
+                                        <tr key={idx} className="hover:bg-[#fcfbf9] transition-colors">
+                                            <td className="p-3 text-[#3d2c1e] font-mono whitespace-nowrap">{record.date}</td>
+                                            <td className="p-3 font-bold text-emerald-700">{record.clockIn || "-"}</td>
+                                            <td className="p-3 font-bold text-blue-700">{record.clockOut || "-"}</td>
+                                            <td className="p-3 text-[#3d2c1e] font-semibold">{record.shift || "-"}</td>
+                                            <td className="p-3 text-[11px] text-[#6b5744] font-mono break-all max-w-[200px]">
+                                                {record.raw_punches?.join(', ') || "Aucun"}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Mobile Card View */}
+                        <div className="sm:hidden space-y-3">
+                            {data.userAttendanceHistory.map((record: any, idx: number) => (
+                                <div key={idx} className="bg-white border border-[#c9b896] rounded-xl p-4 shadow-sm space-y-3">
+                                    <div className="flex justify-between items-center border-b border-[#f0e8dc] pb-2">
+                                        <span className="text-[10px] font-black text-[#8b5a2b] uppercase tracking-widest">Date</span>
+                                        <span className="font-mono font-bold text-[#3d2c1e]">{record.date}</span>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <div className="flex flex-col">
+                                            <span className="text-[10px] text-[#6b5744] uppercase font-bold">Entrée</span>
+                                            <span className="text-emerald-700 font-black text-base">{record.clockIn || "--:--"}</span>
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className="text-[10px] text-[#6b5744] uppercase font-bold">Sortie</span>
+                                            <span className="text-blue-700 font-black text-base">{record.clockOut || "--:--"}</span>
+                                        </div>
+                                        <div className="flex flex-col text-right">
+                                            <span className="text-[10px] text-[#6b5744] uppercase font-bold">Shift</span>
+                                            <span className="text-[#3d2c1e] font-bold">{record.shift || "-"}</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-[#faf8f5] p-2.5 rounded-lg border border-[#f0e8dc]">
+                                        <span className="text-[10px] text-[#8b5a2b] uppercase font-black block mb-1">Détails des Pointages (Raw)</span>
+                                        <p className="text-xs font-mono text-[#6b5744] break-words leading-relaxed">
+                                            {record.raw_punches?.length > 0 ? record.raw_punches.join(' • ') : "Aucun pointage enregistré"}
+                                        </p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {data.userAttendanceHistory.length === 0 && (
+                            <div className="text-center py-12 bg-[#faf8f5] rounded-xl border border-dashed border-[#c9b896]">
+                                <p className="text-[#6b5744] font-medium italic">Aucune donnée trouvée pour cette période</p>
+                            </div>
+                        )}
                     </div>
                 )}
 
