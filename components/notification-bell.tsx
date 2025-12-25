@@ -49,13 +49,21 @@ const MARK_ONE_READ = gql`
 export function NotificationBell() {
   const router = useRouter()
   const currentUser = getCurrentUser()
+
+  let permissions: any = {};
+  if (currentUser?.permissions) {
+    try { permissions = JSON.parse(currentUser.permissions); } catch (e) { }
+  }
+  const canViewNotifications = currentUser?.role === 'admin' || permissions?.notifications?.view !== false;
+
   const { data, loading, refetch, startPolling, stopPolling } = useQuery(GET_NOTIFICATIONS, {
     variables: {
       userId: ['admin', 'manager'].includes(currentUser?.role || '') ? null : currentUser?.id,
       limit: 100
     },
     pollInterval: 60000,
-    fetchPolicy: "cache-and-network"
+    fetchPolicy: "cache-and-network",
+    skip: !canViewNotifications // Skip query if no permission
   });
 
   const [optimisticAllRead, setOptimisticAllRead] = useState(false);
@@ -63,6 +71,8 @@ export function NotificationBell() {
     onCompleted: () => refetch()
   });
   const [markOneRead] = useMutation(MARK_ONE_READ);
+
+  if (!canViewNotifications) return null;
 
   const notifications = useMemo(() => data?.getNotifications || [], [data]);
 

@@ -181,6 +181,7 @@ function AttendanceContent() {
   });
 
   const handlePardonClick = (person: any) => {
+    if (!canSee('attendance', 'pardon')) return;
     // Map person structure to modal expectations
     setPardonEmployee({
       id: person.user.id,
@@ -654,7 +655,7 @@ function AttendanceContent() {
                             <div
                               className={cn(
                                 "flex items-center gap-3 group/item transition-all",
-                                (person.state === "Retard" || person.state === "Absent" || person.state === "Missing_Exit") && "cursor-pointer"
+                                (person.state === "Retard" || person.state === "Absent" || person.state === "Missing_Exit") && canSee('attendance', 'pardon') && "cursor-pointer"
                               )}
                               onClick={() => (person.state === "Retard" || person.state === "Absent" || person.state === "Missing_Exit") && handlePardonClick(person)}
                             >
@@ -744,7 +745,10 @@ function AttendanceContent() {
                     <div
                       key={person.user.id}
                       id={`user-row-mobile-${person.user.id}`}
-                      className="p-4 bg-white flex flex-col gap-4 active:bg-[#f8f6f1] transition-colors"
+                      className={cn(
+                        "p-4 bg-white flex flex-col gap-4 active:bg-[#f8f6f1] transition-colors",
+                        (person.state === "Retard" || person.state === "Absent" || person.state === "Missing_Exit") && canSee('attendance', 'pardon') && "cursor-pointer"
+                      )}
                       onClick={() => (person.state === "Retard" || person.state === "Absent" || person.state === "Missing_Exit") && handlePardonClick(person)}
                     >
                       {/* Top Row: User + Status */}

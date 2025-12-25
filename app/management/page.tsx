@@ -66,8 +66,6 @@ const initialPermissions = {
         notebook: true,
         finance: true,
         advances: true,
-        retards: true,
-        absents: true
     },
     dashboard: {
         total_personnel: true,
@@ -78,10 +76,12 @@ const initialPermissions = {
         reste_a_payer: true
     },
     attendance: {
-        top_performers: true
+        top_performers: true,
+        pardon: true
     },
     employees: {
-        add_employee: true
+        add_employee: true,
+        view_salary: false
     },
     payroll: {
         // Stats
@@ -108,6 +108,12 @@ const initialPermissions = {
         col_net: true,
         col_action: true, // "Payer" button / Details
         user_details_modal: true,
+    },
+    advances: {
+        stats_hidden: false
+    },
+    notifications: {
+        view: true
     }
 }
 
@@ -206,6 +212,8 @@ export default function ManagementPage() {
                     attendance: { ...initialPermissions.attendance, ...(parsed.attendance || {}) },
                     employees: { ...initialPermissions.employees, ...(parsed.employees || {}) },
                     payroll: { ...initialPermissions.payroll, ...(parsed.payroll || {}) },
+                    advances: { ...initialPermissions.advances, ...(parsed.advances || {}) },
+                    notifications: { ...initialPermissions.notifications, ...(parsed.notifications || {}) },
                 })
             } catch (e) {
                 setPermissions(initialPermissions)
@@ -430,15 +438,12 @@ export default function ManagementPage() {
                                             dashboard: "Tableau de bord",
                                             attendance: "Présences",
                                             employees: "Gestion Employés",
-                                            schedule: "Emplois du Temps",
                                             calendar: "Calendrier",
                                             payroll: "Paie (Main)",
                                             fiche_payroll: "Fiches Individuelles",
                                             notebook: "Réclamations",
                                             finance: "Chiffres de Paie",
-                                            advances: "Avances",
-                                            retards: "Retards",
-                                            absents: "Absents"
+                                            advances: "Avances"
                                         }).map(([key, label]) => (
                                             <div key={key} className="flex items-center justify-between p-3.5 bg-white rounded-xl border border-[#c9b896]/10 hover:border-[#8b5a2b]/30 transition-colors shadow-sm">
                                                 <span className="font-bold text-[#3d2c1e] text-sm uppercase tracking-tight">{label}</span>
@@ -515,13 +520,31 @@ export default function ManagementPage() {
                                         action_extra: "Bouton Extra",
                                         action_doublage: "Bouton Doublage",
                                         action_rapport: "Bouton Rapport",
-                                        add_employee: "Ajout Employé"
+                                        add_employee: "Ajout Employé",
+                                        pardon: "Pardonner Retard",
+                                        view_advance_stats: "Stats Avance Visible",
+                                        view_salary: "Voir Salaire (Annuaire)",
+                                        view_notifications: "Voir Notifications"
                                     }).map(([key, label]) => (
                                         <div key={key} className="flex items-center justify-between p-3 bg-white rounded-xl border border-[#c9b896]/10 shadow-sm">
                                             <span className="font-bold text-[#3d2c1e] text-[11px] uppercase">{label}</span>
                                             <Switch
-                                                checked={key === 'add_employee' ? permissions.employees.add_employee : permissions.payroll[key]}
-                                                onCheckedChange={() => key === 'add_employee' ? togglePermission("employees", "add_employee") : togglePermission("payroll", key)}
+                                                checked={
+                                                    key === 'add_employee' ? (permissions.employees?.add_employee ?? false) :
+                                                        key === 'view_salary' ? (permissions.employees?.view_salary ?? false) :
+                                                            key === 'pardon' ? (permissions.attendance?.pardon ?? true) :
+                                                                key === 'view_advance_stats' ? !(permissions.advances?.stats_hidden ?? false) :
+                                                                    key === 'view_notifications' ? (permissions.notifications?.view ?? true) :
+                                                                        (permissions.payroll?.[key] ?? false)
+                                                }
+                                                onCheckedChange={(checked) =>
+                                                    key === 'add_employee' ? togglePermission("employees", "add_employee") :
+                                                        key === 'view_salary' ? togglePermission("employees", "view_salary") :
+                                                            key === 'pardon' ? togglePermission("attendance", "pardon") :
+                                                                key === 'view_advance_stats' ? togglePermission("advances", "stats_hidden") :
+                                                                    key === 'view_notifications' ? togglePermission("notifications", "view") :
+                                                                        togglePermission("payroll", key)
+                                                }
                                             />
                                         </div>
                                     ))}

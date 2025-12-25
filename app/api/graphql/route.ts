@@ -260,6 +260,7 @@ const typeDefs = `#graphql
     markNotificationAsRead(id: ID!): Boolean
     deleteOldNotifications: Boolean
     pardonLate(userId: ID!, date: String!): PayrollRecord
+    changePassword(userId: ID!, oldPassword: String!, newPassword: String!): Boolean
   }
 `;
 
@@ -2097,9 +2098,38 @@ const resolvers = {
       const check = await pool.query('SELECT username FROM public.logins WHERE id = $1', [dbId]);
       const username = check.rows[0]?.username || "Inconnu";
       await pool.query('DELETE FROM public.logins WHERE id = $1', [dbId]);
-      await createNotification('system', "Action Administrative: Accès Supprimé", `Le compte d'accès de ${username} a été supprimé.`, null, context.userDone);
+      await createNotification('system', "Action Administrative: Accès Supprimé", `L'accès système pour ${username} a été supprimé.`, null, context.userDone);
       return true;
     },
+    changePassword: async (_: any, { userId, oldPassword, newPassword }: any) => {
+      const dbId = userId.toString().replace('user-', '').replace('login-', '');
+
+      // Direct ID lookup in logins table as requested
+      const loginCheck = await pool.query('SELECT id, password, username FROM public.logins WHERE id = $1', [dbId]);
+
+      if (loginCheck.rows.length === 0) {
+        // Fallback: If ID lookup fails, try username (legacy/admin case)
+        const usernameCheck = await pool.query('SELECT id, password, username FROM public.logins WHERE username = $1', [userId]);
+        if (usernameCheck.rows.length === 0) {
+          throw new Error(`Compte de connexion introuvable (ID: ${dbId})`);
+        }
+        // Found by username
+        const user = usernameCheck.rows[0];
+        if (user.password !== oldPassword) throw new Error("Mot de passe actuel incorrect");
+        await pool.query('UPDATE public.logins SET password = $1 WHERE id = $2', [newPassword, user.id]);
+        return true;
+      }
+
+      const currentLogin = loginCheck.rows[0];
+
+      if (currentLogin.password !== oldPassword) {
+        throw new Error("Mot de passe actuel incorrect");
+      }
+
+      await pool.query('UPDATE public.logins SET password = $1 WHERE id = $2', [newPassword, currentLogin.id]);
+      return true;
+    },
+
     deleteUser: async (_: any, { id }: { id: string }, context: any) => {
       try {
         await pool.query('DELETE FROM public.cardcin WHERE user_id = $1', [id]);

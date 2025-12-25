@@ -596,9 +596,11 @@ function EmployeesContent() {
                     <div className="flex items-center gap-2 sm:gap-3 text-sm sm:text-base text-[#6b5744] bg-[#f8f6f1]/70 p-3 sm:p-4 rounded-lg sm:rounded-xl">
                       <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-[#8b5a2b] flex-shrink-0" />
                       <span className="truncate font-medium">
-                        Salaire: {employee.baseSalary > 0
-                          ? `${employee.baseSalary.toLocaleString('fr-FR')} TND`
-                          : "Non défini"
+                        Salaire: {(currentUser?.role === 'admin' || permissions.employees?.view_salary)
+                          ? (employee.baseSalary > 0
+                            ? `${employee.baseSalary.toLocaleString('fr-FR')} TND`
+                            : "Non défini")
+                          : "******"
                         }
                       </span>
                     </div>
@@ -924,13 +926,22 @@ function EmployeesContent() {
 
               <div className="space-y-2">
                 <label className="text-base sm:text-lg font-medium text-[#3d2c1e]">Salaire de base (TND)</label>
-                <Input
-                  type="number"
-                  placeholder="Ex: 1200.00"
-                  value={formData.baseSalary}
-                  onChange={(e) => setFormData({ ...formData, baseSalary: e.target.value })}
-                  className="bg-white border-[#c9b896]/30 focus:border-[#8b5a2b] h-12 sm:h-14 text-base sm:text-lg"
-                />
+                {(currentUser?.role === 'admin' || permissions.employees?.view_salary) ? (
+                  <Input
+                    type="number"
+                    placeholder="Ex: 1200.00"
+                    value={formData.baseSalary}
+                    onChange={(e) => setFormData({ ...formData, baseSalary: e.target.value })}
+                    className="bg-white border-[#c9b896]/30 focus:border-[#8b5a2b] h-12 sm:h-14 text-base sm:text-lg"
+                  />
+                ) : (
+                  <Input
+                    type="text"
+                    value="******"
+                    disabled
+                    className="bg-gray-100 border-[#c9b896]/30 h-12 sm:h-14 text-base sm:text-lg cursor-not-allowed"
+                  />
+                )}
               </div>
 
             </div>

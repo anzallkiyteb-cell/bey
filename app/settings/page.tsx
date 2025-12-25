@@ -5,9 +5,63 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { currentUser } from "@/lib/mock-data"
-import { User, Shield, Bell, Palette } from "lucide-react"
+import { User, Shield, Bell, Palette, Eye, EyeOff } from "lucide-react"
+
+import { useState } from "react"
+import { gql, useMutation } from "@apollo/client"
+
+const CHANGE_PASSWORD = gql`
+  mutation ChangePassword($userId: ID!, $oldPassword: String!, $newPassword: String!) {
+    changePassword(userId: $userId, oldPassword: $oldPassword, newPassword: $newPassword)
+  }
+`
 
 export default function SettingsPage() {
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+
+  const [changePassword, { loading: updatingPassword }] = useMutation(CHANGE_PASSWORD)
+
+  const handlePasswordUpdate = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      alert("Veuillez remplir tous les champs")
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      alert("Les nouveaux mots de passe ne correspondent pas")
+      return
+    }
+
+    try {
+      if (!currentUser?.id) {
+        alert("Utilisateur non identifié")
+        return
+      }
+
+      await changePassword({
+        variables: {
+          userId: currentUser.id,
+          oldPassword: currentPassword,
+          newPassword: newPassword
+        }
+      })
+
+      alert("Mot de passe modifié avec succès")
+      setCurrentPassword("")
+      setNewPassword("")
+      setConfirmPassword("")
+    } catch (e: any) {
+      console.error(e)
+      alert(e.message || "Erreur lors de la modification du mot de passe")
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-[#f8f6f1] lg:flex-row">
       <Sidebar />
@@ -79,33 +133,90 @@ export default function SettingsPage() {
                   <label htmlFor="current-password" className="mb-2 block text-sm font-medium text-[#3d2c1e]">
                     Mot de Passe Actuel
                   </label>
-                  <Input
-                    id="current-password"
-                    type="password"
-                    className="bg-[#f8f6f1] border-[#c9b896] text-[#3d2c1e]"
-                  />
+                  <div className="relative">
+                    <Input
+                      id="current-password"
+                      type={showCurrentPassword ? "text" : "password"}
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      className="bg-[#f8f6f1] border-[#c9b896] text-[#3d2c1e] pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                    >
+                      {showCurrentPassword ? (
+                        <EyeOff className="h-4 w-4 text-[#8b5a2b]" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-[#8b5a2b]" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <label htmlFor="new-password" className="mb-2 block text-sm font-medium text-[#3d2c1e]">
                     Nouveau Mot de Passe
                   </label>
-                  <Input id="new-password" type="password" className="bg-[#f8f6f1] border-[#c9b896] text-[#3d2c1e]" />
+                  <div className="relative">
+                    <Input
+                      id="new-password"
+                      type={showNewPassword ? "text" : "password"}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="bg-[#f8f6f1] border-[#c9b896] text-[#3d2c1e] pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                    >
+                      {showNewPassword ? (
+                        <EyeOff className="h-4 w-4 text-[#8b5a2b]" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-[#8b5a2b]" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <label htmlFor="confirm-password" className="mb-2 block text-sm font-medium text-[#3d2c1e]">
                     Confirmer le Mot de Passe
                   </label>
-                  <Input
-                    id="confirm-password"
-                    type="password"
-                    className="bg-[#f8f6f1] border-[#c9b896] text-[#3d2c1e]"
-                  />
+                  <div className="relative">
+                    <Input
+                      id="confirm-password"
+                      type={showConfirmPassword ? "text" : "password"}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="bg-[#f8f6f1] border-[#c9b896] text-[#3d2c1e] pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    >
+                      {showConfirmPassword ? (
+                        <EyeOff className="h-4 w-4 text-[#8b5a2b]" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-[#8b5a2b]" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
                 <Button
                   variant="outline"
                   className="border-[#c9b896] text-[#3d2c1e] hover:bg-[#f8f6f1] bg-transparent w-full sm:w-auto"
+                  onClick={handlePasswordUpdate}
+                  disabled={updatingPassword}
                 >
-                  Modifier le Mot de Passe
+                  {updatingPassword ? "Modification..." : "Modifier le Mot de Passe"}
                 </Button>
               </div>
             </Card>

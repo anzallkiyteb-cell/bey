@@ -14,6 +14,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { cn } from "@/lib/utils"
+import { getCurrentUser } from "@/lib/mock-data"
 
 const GET_PERSONNEL_STATUS = gql`
   query GetPersonnelStatus($date: String) {
@@ -84,7 +85,12 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
     }
   });
 
+  const sessionUser = getCurrentUser();
+  const permissions = sessionUser?.permissions ? JSON.parse(sessionUser.permissions) : {};
+  const canPardon = permissions.attendance?.pardon !== false;
+
   const handlePardonClick = (emp: any) => {
+    if (!canPardon) return;
     setPardonEmployee(emp);
     setIsPardonModalOpen(true);
   };
@@ -369,9 +375,9 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                     <div
                       className={cn(
                         "flex items-center gap-3 group/item transition-all",
-                        emp.status === "Retard" && "cursor-pointer"
+                        emp.status === "Retard" && canPardon && "cursor-pointer"
                       )}
-                      onClick={() => emp.status === "Retard" && handlePardonClick(emp)}
+                      onClick={() => emp.status === "Retard" && canPardon && handlePardonClick(emp)}
                     >
                       <div className={cn(
                         "h-10 w-10 rounded-full bg-gradient-to-br from-[#8b5a2b] to-[#c9b896] flex items-center justify-center text-white font-black text-xs shadow-md overflow-hidden border border-[#c9b896]/30 transition-transform",

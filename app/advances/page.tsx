@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { gql, useQuery, useMutation } from "@apollo/client"
+import { getCurrentUser } from "@/lib/mock-data"
 
 // GraphQL Queries & Mutations
 const GET_DATA = gql`
@@ -252,13 +253,39 @@ function AdvancesContent() {
     return filtered;
   }, [advances, filterParam, searchTerm, selectedDate]);
 
-  const totalAvances = advances
-    .filter((a: any) => a.statut === "Validé")
-    .reduce((sum: number, a: any) => sum + (a.montant || 0), 0);
+  // Permission Logic
+  const currentUser = getCurrentUser();
+  let permissions: any = {};
+  if (currentUser?.permissions) {
+    try { permissions = JSON.parse(currentUser.permissions); } catch (e) { }
+  }
+  const showStats = permissions?.advances?.stats_hidden !== true;
 
-  // Mock total salaries calculation
-  const totalSalaries = users.length * 1200;
-  const totalRemaining = totalSalaries - totalAvances;
+
+  const stats = useMemo(() => {
+    if (!showStats) return {
+      totalAvances: 0,
+      totalRemaining: 0,
+      usersAtMaxCount: 0
+    };
+
+    // Calculate basics
+    const tAvances = advances
+      .filter((a: any) => a.statut === "Validé")
+      .reduce((sum: number, a: any) => sum + (a.montant || 0), 0);
+
+    // Mock salaries for now or better
+    const tSalaries = users.length > 0 ? users.reduce((acc: number, u: any) => acc + (u.base_salary || 1200), 0) : 0;
+    const tRemaining = tSalaries - tAvances;
+
+    return {
+      totalAvances: tAvances,
+      totalRemaining: tRemaining
+    };
+  }, [advances, users, showStats]);
+
+  const totalAvances = stats.totalAvances;
+  const totalRemaining = stats.totalRemaining;
 
   const usersAtMax = useMemo(() => {
     return users.filter((user: any) => {
@@ -406,66 +433,68 @@ function AdvancesContent() {
         </div>
 
         <div className="p-6 sm:p-8">
-          <div className="mb-6 sm:mb-8 grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-            <Card className="border-[#c9b896] bg-white p-6 shadow-md">
-              <div className="flex items-center gap-4">
-                <div className="rounded-lg bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 p-4 text-emerald-600 border border-emerald-200">
-                  <TrendingUp className="h-7 w-7" />
+          {showStats && (
+            <div className="mb-6 sm:mb-8 grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+              <Card className="border-[#c9b896] bg-white p-6 shadow-md">
+                <div className="flex items-center gap-4">
+                  <div className="rounded-lg bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 p-4 text-emerald-600 border border-emerald-200">
+                    <TrendingUp className="h-7 w-7" />
+                  </div>
+                  <div>
+                    <p className="text-sm sm:text-base text-[#6b5744]">Total Avances (Validé)</p>
+                    <p className="font-[family-name:var(--font-heading)] text-2xl sm:text-3xl font-bold text-[#3d2c1e]">
+                      {totalAvances.toLocaleString()} TND
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm sm:text-base text-[#6b5744]">Total Avances (Validé)</p>
-                  <p className="font-[family-name:var(--font-heading)] text-2xl sm:text-3xl font-bold text-[#3d2c1e]">
-                    {totalAvances.toLocaleString()} TND
-                  </p>
-                </div>
-              </div>
-            </Card>
+              </Card>
 
-            <Card className="border-[#c9b896] bg-white p-6 shadow-md">
-              <div className="flex items-center gap-4">
-                <div className="rounded-lg bg-gradient-to-br from-blue-500/20 to-blue-500/5 p-4 text-blue-600 border border-blue-200">
-                  <DollarSign className="h-7 w-7" />
+              <Card className="border-[#c9b896] bg-white p-6 shadow-md">
+                <div className="flex items-center gap-4">
+                  <div className="rounded-lg bg-gradient-to-br from-blue-500/20 to-blue-500/5 p-4 text-blue-600 border border-blue-200">
+                    <DollarSign className="h-7 w-7" />
+                  </div>
+                  <div>
+                    <p className="text-sm sm:text-base text-[#6b5744]">Total Reste (Est.)</p>
+                    <p className="font-[family-name:var(--font-heading)] text-2xl sm:text-3xl font-bold text-[#3d2c1e]">
+                      {totalRemaining.toLocaleString()} TND
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm sm:text-base text-[#6b5744]">Total Reste (Est.)</p>
-                  <p className="font-[family-name:var(--font-heading)] text-2xl sm:text-3xl font-bold text-[#3d2c1e]">
-                    {totalRemaining.toLocaleString()} TND
-                  </p>
-                </div>
-              </div>
-            </Card>
+              </Card>
 
-            <Card className="border-[#c9b896] bg-white p-6 shadow-md">
-              <div className="flex items-center gap-4">
-                <div className="rounded-lg bg-gradient-to-br from-amber-500/20 to-amber-500/5 p-4 text-amber-600 border border-amber-200">
-                  <DollarSign className="h-7 w-7" />
+              <Card className="border-[#c9b896] bg-white p-6 shadow-md">
+                <div className="flex items-center gap-4">
+                  <div className="rounded-lg bg-gradient-to-br from-amber-500/20 to-amber-500/5 p-4 text-amber-600 border border-amber-200">
+                    <DollarSign className="h-7 w-7" />
+                  </div>
+                  <div>
+                    <p className="text-sm sm:text-base text-[#6b5744]">Avances Validées</p>
+                    <p className="font-[family-name:var(--font-heading)] text-2xl sm:text-3xl font-bold text-[#3d2c1e]">
+                      {advances.filter((a: any) => a.statut === "Validé").length}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm sm:text-base text-[#6b5744]">Avances Validées</p>
-                  <p className="font-[family-name:var(--font-heading)] text-2xl sm:text-3xl font-bold text-[#3d2c1e]">
-                    {advances.filter((a: any) => a.statut === "Validé").length}
-                  </p>
-                </div>
-              </div>
-            </Card>
+              </Card>
 
-            <Card
-              className="border-[#c9b896] bg-white p-6 shadow-md cursor-pointer hover:shadow-lg transition-shadow"
-              onClick={() => setShowMaxUsersDialog(true)}
-            >
-              <div className="flex items-center gap-4">
-                <div className="rounded-lg bg-gradient-to-br from-red-500/20 to-red-500/5 p-4 text-red-600 border border-red-200">
-                  <AlertCircle className="h-7 w-7" />
+              <Card
+                className="border-[#c9b896] bg-white p-6 shadow-md cursor-pointer hover:shadow-lg transition-shadow"
+                onClick={() => setShowMaxUsersDialog(true)}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="rounded-lg bg-gradient-to-br from-red-500/20 to-red-500/5 p-4 text-red-600 border border-red-200">
+                    <AlertCircle className="h-7 w-7" />
+                  </div>
+                  <div>
+                    <p className="text-sm sm:text-base text-[#6b5744]">Avances Max</p>
+                    <p className="font-[family-name:var(--font-heading)] text-2xl sm:text-3xl font-bold text-[#3d2c1e]">
+                      {usersAtMax.length}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm sm:text-base text-[#6b5744]">Avances Max</p>
-                  <p className="font-[family-name:var(--font-heading)] text-2xl sm:text-3xl font-bold text-[#3d2c1e]">
-                    {usersAtMax.length}
-                  </p>
-                </div>
-              </div>
-            </Card>
-          </div>
+              </Card>
+            </div>
+          )}
 
           <Card className="border-[#c9b896] bg-white shadow-md">
             <div className="border-b border-[#c9b896] p-6">
