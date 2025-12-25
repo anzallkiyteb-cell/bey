@@ -503,8 +503,10 @@ const ensureStaticIndexes = async () => {
     }
   } catch (e) { console.error("Index creation error:", e); }
 };
-// Run once on module load (lazy)
-ensureStaticIndexes();
+// DISABLED: Run once on module load (lazy)
+// This was causing "too many clients" errors on databases with low max_connections
+// Indexes will be created manually or on-demand instead
+// ensureStaticIndexes();
 
 const fetchDayPunches = async (logicalDate: Date, userId: string | null = null) => {
   // Construct table names
