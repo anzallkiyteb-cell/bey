@@ -271,7 +271,8 @@ const formatTime = (dateStr: string) => {
   if (!dateStr) return null;
   try {
     const date = new Date(dateStr);
-    return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    if (isNaN(date.getTime())) return null;
+    return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Africa/Tunis' });
   } catch (e) { return dateStr; }
 };
 
@@ -518,22 +519,38 @@ const fetchDayPunches = async (logicalDate: Date, userId: string | null = null) 
   // Query both tables in parallel
   const [res1, res2] = await Promise.all([
     (async () => {
+      // Try to ensure index, but don't block query if it fails
+      try { await ensureTableIndexes(table1); } catch (e) { console.error(`Index creation failed for ${table1}`, e); }
+
       try {
-        await ensureTableIndexes(table1); // Ensure index exists
         let q1 = `SELECT device_time, user_id FROM public."${table1}" WHERE device_time >= '${startStr}'`;
         if (userId) q1 += ` AND user_id = ${userId} `;
         q1 += ` ORDER BY device_time ASC`;
         return await pool.query(q1);
-      } catch (e) { return { rows: [] }; }
+      } catch (e: any) {
+        // Suppress "relation does not exist" error as it's expected for future/missing tables
+        if (!e.message.includes('does not exist')) {
+          console.error(`[fetchDayPunches] Error fetching from ${table1}:`, e.message);
+        }
+        return { rows: [] };
+      }
     })(),
     (async () => {
+      // Try to ensure index, but don't block query if it fails
+      try { await ensureTableIndexes(table2); } catch (e) { /* ignore */ }
+
       try {
-        await ensureTableIndexes(table2); // Ensure index exists
         let q2 = `SELECT device_time, user_id FROM public."${table2}" WHERE device_time < '${endStr}'`;
         if (userId) q2 += ` AND user_id = ${userId} `;
         q2 += ` ORDER BY device_time ASC`;
         return await pool.query(q2);
-      } catch (e) { return { rows: [] }; }
+      } catch (e: any) {
+        // Suppress "relation does not exist" error
+        if (!e.message.includes('does not exist')) {
+          console.error(`[fetchDayPunches] Error fetching from ${table2}:`, e.message);
+        }
+        return { rows: [] };
+      }
     })()
   ]);
 
@@ -1729,8 +1746,9 @@ const resolvers = {
       // Group punches by user_id for O(1) lookup inside the loop
       const punchesByUser = new Map();
       allPunches.forEach((p: any) => {
-        if (!punchesByUser.has(p.user_id)) punchesByUser.set(p.user_id, []);
-        punchesByUser.get(p.user_id).push(p);
+        const uid = Number(p.user_id);
+        if (!punchesByUser.has(uid)) punchesByUser.set(uid, []);
+        punchesByUser.get(uid).push(p);
       });
 
       const results = users.map((user: any) => {
