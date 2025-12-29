@@ -98,23 +98,32 @@ function DashboardContent() {
   // Split queries for better performance - load personnel status first
   const { data: personnelData, loading: personnelLoading, error: personnelError } = useQuery(GET_PERSONNEL_STATUS, {
     variables: { date: today },
-    fetchPolicy: "cache-first",
-    nextFetchPolicy: "cache-first",
-    pollInterval: 30000, // Refresh every 30 seconds
+    fetchPolicy: "network-only", // Temporarily disable cache to see real performance
+    pollInterval: 30000,
+    onCompleted: (data) => {
+      console.log('[Dashboard] Personnel data loaded:', data?.personnelStatus?.length, 'employees');
+    },
+    onError: (error) => {
+      console.error('[Dashboard] Personnel query error:', error);
+    }
   });
 
-  const { data: financialData, loading: financialLoading } = useQuery(GET_FINANCIAL_DATA, {
+  const { data: financialData, loading: financialLoading, error: financialError } = useQuery(GET_FINANCIAL_DATA, {
     variables: {
       month: currentMonth,
       payrollMonth: payrollMonth
     },
-    fetchPolicy: "cache-first",
-    nextFetchPolicy: "cache-first",
-    skip: !personnelData, // Wait for personnel data first
+    fetchPolicy: "network-only", // Temporarily disable cache
+    skip: !personnelData,
+    onCompleted: (data) => {
+      console.log('[Dashboard] Financial data loaded');
+    },
+    onError: (error) => {
+      console.error('[Dashboard] Financial query error:', error);
+    }
   });
 
-  const loading = personnelLoading || financialLoading;
-  const error = personnelError;
+  const error = personnelError || financialError;
   const data = personnelData && financialData ? {
     personnelStatus: personnelData.personnelStatus,
     getAdvances: financialData.getAdvances,
@@ -123,6 +132,15 @@ function DashboardContent() {
     getRetards: [],
     getAbsents: []
   } : null;
+
+  useEffect(() => {
+    if (personnelLoading) {
+      console.log('[Dashboard] Loading personnel data...');
+    }
+    if (financialLoading) {
+      console.log('[Dashboard] Loading financial data...');
+    }
+  }, [personnelLoading, financialLoading]);
 
   const stats = useMemo(() => {
     if (!data) return null;
