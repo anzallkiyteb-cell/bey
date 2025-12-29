@@ -207,12 +207,14 @@ export default function UserFichePage() {
     }, [payroll, user, selectedMonth])
 
     const handleSync = async () => {
+        if (stats.isPaid) return;
         // Sync today and yesterday
         await syncAttendance({ variables: { date: format(new Date(), 'yyyy-MM-dd') } })
         await refetchPayroll()
     }
 
     const startEdit = (record: any) => {
+        if (stats.isPaid) return;
         setEditingId(record.id)
         setEditForm({
             present: record.present,
@@ -233,7 +235,7 @@ export default function UserFichePage() {
     }
 
     const saveEdit = async () => {
-        if (!editingId || isSaving) return
+        if (!editingId || isSaving || stats.isPaid) return
         setIsSaving(true)
         try {
             const input = {
@@ -391,9 +393,13 @@ export default function UserFichePage() {
                                 </SelectContent>
                             </Select>
 
-                            <Button onClick={handleSync} disabled={syncing} className="bg-[#8b5a2b] text-white hover:opacity-90">
+                            <Button
+                                onClick={handleSync}
+                                disabled={syncing || stats.isPaid}
+                                className={cn("bg-[#8b5a2b] text-white hover:opacity-90", stats.isPaid && "opacity-50 cursor-not-allowed")}
+                            >
                                 <RefreshCw className={cn("h-5 w-5 mr-2", syncing && "animate-spin")} />
-                                Sync
+                                {stats.isPaid ? "Verrouillé" : "Sync"}
                             </Button>
 
                             <Button
@@ -458,7 +464,15 @@ export default function UserFichePage() {
                                             const isWeekend = date.getDay() === 0 // Dimanche
 
                                             return (
-                                                <tr key={record.id} onClick={() => startEdit(record)} className={cn("hover:bg-[#f8f6f1]/30 cursor-pointer transition-colors group", isWeekend && "bg-gray-50")}>
+                                                <tr
+                                                    key={record.id}
+                                                    onClick={() => !stats.isPaid && startEdit(record)}
+                                                    className={cn(
+                                                        "transition-colors group",
+                                                        isWeekend && "bg-gray-50",
+                                                        !stats.isPaid ? "hover:bg-[#f8f6f1]/30 cursor-pointer" : "cursor-default"
+                                                    )}
+                                                >
                                                     <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] group-hover:bg-[#8b5a2b]/5 transition-colors">{format(date, "dd/MM/yyyy")}</td>
                                                     <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] capitalize group-hover:bg-[#8b5a2b]/5 transition-colors">{dayName}</td>
                                                     <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-bold group-hover:bg-[#8b5a2b]/5 transition-colors">

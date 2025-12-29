@@ -608,9 +608,11 @@ export default function PayrollPage() {
                           <SelectContent className="bg-white border-[#c9b896]">
                             {users
                               .filter((u: any) => {
+                                const summary = payrollSummary.find((p: any) => p.userId === u.id);
+                                const isPaid = summary?.isPaid;
                                 const matchesSearch = u.username.toLowerCase().includes(primeSearchTerm.toLowerCase())
                                 const matchesDep = primeSelectedDepartment === "all" || u.departement === primeSelectedDepartment
-                                return matchesSearch && matchesDep
+                                return matchesSearch && matchesDep && !isPaid
                               })
                               .map((u: any) => (
                                 <SelectItem key={u.id} value={u.id}>
@@ -701,9 +703,11 @@ export default function PayrollPage() {
                           <SelectContent className="bg-white border-[#c9b896]">
                             {users
                               .filter((u: any) => {
+                                const summary = payrollSummary.find((p: any) => p.userId === u.id);
+                                const isPaid = summary?.isPaid;
                                 const matchesSearch = u.username.toLowerCase().includes(extraSearchTerm.toLowerCase())
                                 const matchesDep = extraSelectedDepartment === "all" || u.departement === extraSelectedDepartment
-                                return matchesSearch && matchesDep
+                                return matchesSearch && matchesDep && !isPaid
                               })
                               .map((u: any) => (
                                 <SelectItem key={u.id} value={u.id}>
@@ -795,9 +799,11 @@ export default function PayrollPage() {
                           <SelectContent className="bg-white border-[#c9b896]">
                             {users
                               .filter((u: any) => {
+                                const summary = payrollSummary.find((p: any) => p.userId === u.id);
+                                const isPaid = summary?.isPaid;
                                 const matchesSearch = u.username.toLowerCase().includes(doublageSearchTerm.toLowerCase())
                                 const matchesDep = doublageSelectedDepartment === "all" || u.departement === doublageSelectedDepartment
-                                return matchesSearch && matchesDep
+                                return matchesSearch && matchesDep && !isPaid
                               })
                               .map((u: any) => (
                                 <SelectItem key={u.id} value={u.id}>
