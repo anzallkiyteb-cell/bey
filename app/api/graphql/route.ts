@@ -20,6 +20,7 @@ const typeDefs = `#graphql
     cin_photo_front: String
     cin_photo_back: String
     is_blocked: Boolean
+    nbmonth: Int
   }
 
   type Attendance {
@@ -132,6 +133,7 @@ const typeDefs = `#graphql
     photo: String
     is_blocked: Boolean
     permissions: String
+    nbmonth: Int
   }
 
   type Extra {
@@ -264,6 +266,7 @@ const typeDefs = `#graphql
     changePassword(userId: ID!, oldPassword: String!, newPassword: String!): Boolean
     payUser(month: String!, userId: ID!): Boolean
     unpayUser(month: String!, userId: ID!): Boolean
+    updateNbMonth(userId: ID!, nbmonth: Int!): Boolean
   }
 `;
 
@@ -1197,7 +1200,7 @@ const resolvers = {
     },
     getUser: async (_: any, { id }: { id: string }) => {
       const res = await pool.query(`
-        SELECT id, username, role, status, zktime_id, "département" as departement, email, phone, cin, base_salary, photo, is_blocked, permissions 
+        SELECT id, username, role, status, zktime_id, "département" as departement, email, phone, cin, base_salary, photo, is_blocked, permissions, nbmonth 
         FROM public.users 
         WHERE id = $1
       `, [id]);
@@ -1775,7 +1778,7 @@ const resolvers = {
       // Parallelize Fetching
       const [usersRes, schedulesRes, allPunches, retardsRes, absentsRes, payrollRes] = await Promise.all([
         pool.query(`
-          SELECT id, username, role, status, zktime_id, "département" as departement, email, phone, cin, base_salary, photo, is_blocked, permissions 
+          SELECT id, username, role, status, zktime_id, "département" as departement, email, phone, cin, base_salary, photo, is_blocked, permissions, nbmonth 
           FROM public.users 
           ORDER BY id ASC
         `),
@@ -2017,15 +2020,16 @@ const resolvers = {
       try {
         await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS photo TEXT');
         await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT false');
+        await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS nbmonth INT');
         await pool.query('ALTER TABLE public.users ALTER COLUMN zktime_id DROP NOT NULL');
       } catch (e) { }
 
-      const { username, email, phone, cin, departement, role, zktime_id, status, base_salary, photo, is_blocked } = input;
+      const { username, email, phone, cin, departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth } = input;
       const res = await pool.query(
-        `INSERT INTO public.users(username, email, phone, cin, "département", role, zktime_id, status, base_salary, photo, is_blocked)
-         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-         RETURNING id, username, email, phone, cin, "département" as departement, role, zktime_id, status, base_salary, photo, is_blocked`,
-        [username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false]
+        `INSERT INTO public.users(username, email, phone, cin, "département", role, zktime_id, status, base_salary, photo, is_blocked, nbmonth)
+         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         RETURNING id, username, email, phone, cin, "département" as departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth`,
+        [username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false, nbmonth || null]
       );
       const newUser = res.rows[0];
       await createNotification('system', "Action Administrative: Nouvel Employé", `L'employé ${newUser.username} a été ajouté au système.`, newUser.id, context.userDone, `/employees?userId=${newUser.id}`);
@@ -2035,15 +2039,16 @@ const resolvers = {
       try {
         await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS photo TEXT');
         await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT false');
+        await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS nbmonth INT');
       } catch (e) { }
 
-      const { username, email, phone, cin, departement, role, zktime_id, status, base_salary, photo, is_blocked } = input;
+      const { username, email, phone, cin, departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth } = input;
       const res = await pool.query(
         `UPDATE public.users
-          SET username = $2, email = $3, phone = $4, cin = $5, "département" = $6, role = $7, zktime_id = $8, status = $9, base_salary = $10, photo = $11, is_blocked = $12
+          SET username = $2, email = $3, phone = $4, cin = $5, "département" = $6, role = $7, zktime_id = $8, status = $9, base_salary = $10, photo = $11, is_blocked = $12, nbmonth = $13
           WHERE id = $1
-          RETURNING id, username, email, phone, cin, "département" as departement, role, zktime_id, status, base_salary, photo, is_blocked`,
-        [id, username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false]
+          RETURNING id, username, email, phone, cin, "département" as departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth`,
+        [id, username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false, nbmonth || null]
       );
       const updatedUser = res.rows[0];
       await createNotification('system', "Action Administrative: Profil Mis à Jour", `Le profil de ${updatedUser.username} a été mis à jour par un administrateur.`, updatedUser.id, context.userDone, `/employees?userId=${updatedUser.id}`);
@@ -3019,6 +3024,15 @@ const resolvers = {
       } catch (error) {
         console.error('Error unpaying user:', error);
         throw new Error('Failed to unmark user as paid');
+      }
+    },
+    updateNbMonth: async (_: any, { userId, nbmonth }: { userId: string, nbmonth: number }) => {
+      try {
+        await pool.query('UPDATE public.users SET nbmonth = $2 WHERE id = $1', [userId, nbmonth]);
+        return true;
+      } catch (e) {
+        console.error("updateNbMonth error:", e);
+        return false;
       }
     }
   },

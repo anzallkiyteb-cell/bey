@@ -46,6 +46,7 @@ const GET_PAYROLL_PAGE = gql`
         base_salary
         photo
         is_blocked
+        nbmonth
       }
     }
     getPayroll(month: $month) {
@@ -128,15 +129,14 @@ const UNPAY_USER = gql`
 // Helper to calculate stats
 const calculateUserStats = (user: any, userRecords: any[], userSchedule: any, monthDate: Date) => {
   const daysInMonth = getDaysInMonth(monthDate);
+  const divisor = user.nbmonth || daysInMonth;
   const presentDays = userRecords.filter((r: any) => r.present === 1).length;
 
   const baseSalary = user.base_salary || 0;
-  const dayValue = baseSalary / daysInMonth;
+  const dayValue = baseSalary / divisor;
 
-  // USER LOGIC: (BaseSalary / DaysInMonth) * (PresentDays + 4)
-  // We cap the paid days at the number of days in the month to avoid overpayment 
-  // if they worked every day and also get 4 repos (though user says worked repos are Extras).
-  const paidDays = Math.min(daysInMonth, presentDays + 4);
+  // USER LOGIC: (BaseSalary / Divisor) * (PresentDays + 4)
+  const paidDays = presentDays + 4;
   const calculatedSalary = dayValue * paidDays;
 
   const totalPrimes = userRecords.reduce((sum: number, r: any) => sum + (r.prime || 0), 0);

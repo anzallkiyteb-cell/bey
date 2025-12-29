@@ -42,6 +42,7 @@ const GET_USER_DATA = gql`
       base_salary
       phone
       cin
+      nbmonth
     }
   }
 `
@@ -110,6 +111,12 @@ const UNPAY_USER = gql`
   }
 `
 
+const UPDATE_NB_MONTH = gql`
+  mutation UpdateNbMonth($userId: ID!, $nbmonth: Int!) {
+    updateNbMonth(userId: $userId, nbmonth: $nbmonth)
+  }
+`
+
 export default function UserFichePage() {
     const { userId } = useParams()
     const router = useRouter()
@@ -138,6 +145,9 @@ export default function UserFichePage() {
     const [updateRecord] = useMutation(UPDATE_PAYROLL_RECORD)
     const [payUser, { loading: paying }] = useMutation(PAY_USER)
     const [unpayUser, { loading: unpaying }] = useMutation(UNPAY_USER)
+    const [updateNbMonth] = useMutation(UPDATE_NB_MONTH)
+
+    const [nbMonth, setNbMonth] = useState<number | ''>('')
 
     const [editingId, setEditingId] = useState<string | null>(null)
     const [showRedirectDialog, setShowRedirectDialog] = useState(false)
@@ -154,6 +164,13 @@ export default function UserFichePage() {
     })
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
+
+    // Initialize nbMonth from user data
+    useEffect(() => {
+        if (user && user.nbmonth !== undefined) {
+            setNbMonth(user.nbmonth || getDaysInMonth(new Date(selectedMonth.replace("_", "-") + "-01")))
+        }
+    }, [user, selectedMonth])
 
     const formatDuration = (mins: number) => {
         if (!mins || mins <= 0) return "-"
@@ -178,14 +195,15 @@ export default function UserFichePage() {
     const stats = useMemo(() => {
         const monthDate = new Date(selectedMonth.replace("_", "-") + "-01");
         const daysInMonth = getDaysInMonth(monthDate);
+        const divisor = Number(nbMonth) || daysInMonth;
 
         const totalPresentOnWorkDays = payroll.reduce((sum: number, r: any) => sum + (r.present === 1 ? 1 : 0), 0)
 
         const baseSalary = user?.base_salary || 0
-        const dayValue = baseSalary / daysInMonth
+        const dayValue = baseSalary / divisor
 
-        // USER LOGIC: (BaseSalary / DaysInMonth) * (PresentDays + 4)
-        const paidDays = Math.min(daysInMonth, totalPresentOnWorkDays + 4);
+        // USER LOGIC: (BaseSalary / Divisor) * (PresentDays + 4)
+        const paidDays = totalPresentOnWorkDays + 4;
         const calculatedSalary = dayValue * paidDays;
 
         const totalAbsentsDisplay = daysInMonth - paidDays;
@@ -254,6 +272,21 @@ export default function UserFichePage() {
             await refetchPayroll()
         } catch (err) {
             console.error("Unpay Error:", err)
+        }
+    }
+
+    const handleUpdateNbMonth = async (val: number) => {
+        if (!userId) return
+        setNbMonth(val)
+        try {
+            await updateNbMonth({
+                variables: {
+                    userId: String(userId),
+                    nbmonth: val
+                }
+            })
+        } catch (err) {
+            console.error("Update NbMonth Error:", err)
         }
     }
 
@@ -436,6 +469,18 @@ export default function UserFichePage() {
                                     ))}
                                 </SelectContent>
                             </Select>
+
+                            <div className="flex items-center gap-2 bg-[#f8f6f1] border border-[#c9b896] rounded-md px-3 py-1">
+                                <Label htmlFor="nbmonth" className="text-xs font-semibold text-[#8b5a2b] whitespace-nowrap">Diviseur :</Label>
+                                <Input
+                                    id="nbmonth"
+                                    type="number"
+                                    value={nbMonth}
+                                    onChange={(e) => handleUpdateNbMonth(parseInt(e.target.value) || 0)}
+                                    className="w-16 h-8 border-none bg-transparent focus-visible:ring-0 p-1 text-center font-bold text-[#8b5a2b]"
+                                />
+                                <span className="text-xs text-[#6b5744]">jours</span>
+                            </div>
 
                             <Button
                                 onClick={handleSync}
