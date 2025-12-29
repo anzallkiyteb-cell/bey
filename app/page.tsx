@@ -32,6 +32,8 @@ const GET_PERSONNEL_STATUS = gql`
       state
       shift
       delay
+      infraction
+      remarque
     }
   }
 `
