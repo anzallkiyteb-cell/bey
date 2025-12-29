@@ -28,7 +28,7 @@ import {
     Maximize2
 } from "lucide-react"
 import Link from "next/link"
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef } from "react"
 import { gql, useQuery, useMutation } from "@apollo/client"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -98,6 +98,8 @@ export default function AllSchedulesPlacementPage() {
     const [searchQuery, setSearchQuery] = useState("")
     const [updatingId, setUpdatingId] = useState<string | null>(null)
     const [isCompact, setIsCompact] = useState(true)
+    const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+    const longPressTimer = useRef<any>(null)
 
     const schedules = data?.getAllSchedules || []
 
@@ -117,6 +119,7 @@ export default function AllSchedulesPlacementPage() {
     const handleUpdateShift = async (user: any, dayKey: string, newShift: string) => {
         const userId = user.user_id
         setUpdatingId(`${userId}-${dayKey}`)
+        setOpenMenuId(null) // Close menu after selection
 
         const currentSchedule = {
             dim: user.dim || "Repos",
@@ -141,6 +144,22 @@ export default function AllSchedulesPlacementPage() {
             console.error("Update failed", e)
         } finally {
             setUpdatingId(null)
+        }
+    }
+
+    const onLongPressStart = (id: string) => {
+        longPressTimer.current = setTimeout(() => {
+            setOpenMenuId(id)
+            if (navigator && (navigator as any).vibrate) {
+                (navigator as any).vibrate(50)
+            }
+        }, 600)
+    }
+
+    const onLongPressEnd = () => {
+        if (longPressTimer.current) {
+            clearTimeout(longPressTimer.current)
+            longPressTimer.current = null
         }
     }
 
@@ -252,24 +271,26 @@ export default function AllSchedulesPlacementPage() {
                                                             {emps.map((emp: any) => {
                                                                 const isUpdating = updatingId?.startsWith(`${emp.user_id}-${day.key}`)
                                                                 return (
-                                                                    <DropdownMenu key={emp.user_id}>
+                                                                    <DropdownMenu
+                                                                        key={emp.user_id}
+                                                                        open={openMenuId === `${emp.user_id}-${day.key}`}
+                                                                        onOpenChange={(open) => {
+                                                                            if (!open) setOpenMenuId(null)
+                                                                        }}
+                                                                    >
                                                                         <DropdownMenuTrigger asChild>
                                                                             <button
                                                                                 disabled={isUpdating}
+                                                                                onPointerDown={() => onLongPressStart(`${emp.user_id}-${day.key}`)}
+                                                                                onPointerUp={onLongPressEnd}
+                                                                                onPointerLeave={onLongPressEnd}
                                                                                 className={cn(
                                                                                     "flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all active:scale-95 text-left w-full overflow-hidden border shadow-[0_1px_2px_rgba(0,0,0,0.05)]",
-                                                                                    shiftOpt.iconBg, "hover:shadow-md hover:-translate-y-0.5",
+                                                                                    shiftOpt.iconBg, "hover:shadow-md",
                                                                                     shiftOpt.border,
                                                                                     isUpdating && "opacity-50 grayscale cursor-not-allowed"
                                                                                 )}
                                                                             >
-                                                                                <div className="h-6 w-6 lg:h-7 lg:w-7 bg-white/60 rounded-md flex-shrink-0 flex items-center justify-center text-[10px] font-black text-[#8b5a2b] overflow-hidden border border-[#8b5a2b]/10">
-                                                                                    {emp.photo ? (
-                                                                                        <img src={emp.photo} className="h-full w-full object-cover" />
-                                                                                    ) : (
-                                                                                        <span className="opacity-40">{emp.username.charAt(0)}</span>
-                                                                                    )}
-                                                                                </div>
                                                                                 <div className="flex flex-col min-w-0">
                                                                                     <span className="text-[9px] lg:text-[10px] font-black text-[#3d2c1e] truncate uppercase tracking-tight leading-none mb-0.5">
                                                                                         {emp.username}
@@ -315,20 +336,6 @@ export default function AllSchedulesPlacementPage() {
                     </table>
                 </div>
 
-                {/* --- DYNAMIC FLOATING LEGEND: VERY COMPACT --- */}
-                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 p-1.5 rounded-full bg-[#3d2c1e]/90 backdrop-blur-md text-white shadow-2xl border border-white/5 z-[100] scale-90 sm:scale-100">
-                    <div className="h-6 w-6 rounded-full bg-[#8b5a2b]/20 flex items-center justify-center border border-[#8b5a2b]/40">
-                        <Info className="h-3 w-3 text-[#8b5a2b]" />
-                    </div>
-                    <div className="flex items-center gap-1 overflow-x-auto px-2 scrollbar-none">
-                        {SHIFT_OPTIONS.map(opt => (
-                            <div key={opt.value} className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/5">
-                                <opt.icon className={cn("h-3 w-3", opt.color === 'text-amber-600' ? 'text-amber-400' : opt.color.replace('text-', 'text-'))} />
-                                <span className="text-[7px] font-black uppercase tracking-tighter opacity-70">{opt.label}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
             </main>
 
             {/* --- INJECTED GLOBAL STYLES FOR TABLE PERFORMANCE --- */}

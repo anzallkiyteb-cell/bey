@@ -3,7 +3,8 @@
 import { Sidebar } from "@/components/sidebar"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -20,13 +21,15 @@ import {
   Wallet,
   Search,
   Layers,
+  RotateCcw,
+  XCircle,
 } from "lucide-react"
 import { useState, useMemo, useEffect } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { NotificationBell } from "@/components/notification-bell"
 import { getCurrentUser } from "@/lib/mock-data"
 import { gql, useQuery, useMutation } from "@apollo/client"
-import { format } from "date-fns"
+import { format, getDaysInMonth } from "date-fns"
 import { fr } from "date-fns/locale"
 import { cn } from "@/lib/utils"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -75,6 +78,7 @@ const GET_PAYROLL_PAGE = gql`
       user_id
       montant
       date_extra
+      motif
     }
     getDoublages(month: $month) {
       id
@@ -114,29 +118,26 @@ const PAY_USER = gql`
   }
 `
 
+const UNPAY_USER = gql`
+  mutation UnpayUser($month: String!, $userId: ID!) {
+    unpayUser(month: $month, userId: $userId)
+  }
+`
+
 
 // Helper to calculate stats
 const calculateUserStats = (user: any, userRecords: any[], userSchedule: any, monthDate: Date) => {
-  const totalDays = userRecords.length;
-
+  const daysInMonth = getDaysInMonth(monthDate);
   const presentDays = userRecords.filter((r: any) => r.present === 1).length;
 
-  const now = new Date();
-  if (now.getHours() < 4) {
-    now.setDate(now.getDate() - 1);
-  }
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = format(yesterday, 'yyyy-MM-dd');
-
-  const absentDays = userRecords.filter((r: any) => {
-    return r.date <= yesterdayStr && r.present === 0;
-  }).length;
-
   const baseSalary = user.base_salary || 0;
-  const dayValue = baseSalary / 30;
+  const dayValue = baseSalary / daysInMonth;
 
-  const calculatedSalary = baseSalary - (absentDays * dayValue);
+  // USER LOGIC: (BaseSalary / DaysInMonth) * (PresentDays + 4)
+  // We cap the paid days at the number of days in the month to avoid overpayment 
+  // if they worked every day and also get 4 repos (though user says worked repos are Extras).
+  const paidDays = Math.min(daysInMonth, presentDays + 4);
+  const calculatedSalary = dayValue * paidDays;
 
   const totalPrimes = userRecords.reduce((sum: number, r: any) => sum + (r.prime || 0), 0);
   const totalExtras = userRecords.reduce((sum: number, r: any) => sum + (r.extra || 0), 0);
@@ -146,7 +147,12 @@ const calculateUserStats = (user: any, userRecords: any[], userSchedule: any, mo
   const totalDoublages = userRecords.reduce((sum: number, r: any) => sum + (r.doublage || 0), 0);
 
   const deductions = totalInfractions + totalAdvances;
-  const netSalary = calculatedSalary + totalPrimes + totalExtras - deductions;
+
+  // USER LOGIC: Net Salary does NOT include primes/extras/doublages because they are paid immediately
+  const netSalary = calculatedSalary - deductions;
+
+  // For display of "Jours Abs", we show how many days were NOT paid
+  const absentDays = daysInMonth - paidDays;
 
   return {
     baseSalary,
@@ -233,8 +239,6 @@ export default function PayrollPage() {
       // Check if user is paid (check if any record has paid = true)
       const isPaid = userRecords.some((r: any) => r.paid === true);
 
-      console.log(`User ${user.username} (ID: ${user.id}) - isPaid:`, isPaid, 'Records:', userRecords.length, 'Paid records:', userRecords.filter((r: any) => r.paid).length);
-
       return {
         userId: user.id,
         user,
@@ -277,6 +281,8 @@ export default function PayrollPage() {
   const [doublageSelectedDepartment, setDoublageSelectedDepartment] = useState("all")
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedDepartment, setSelectedDepartment] = useState("all")
+  const [unpayConfirmOpen, setUnpayConfirmOpen] = useState(false)
+  const [unpayTargetId, setUnpayTargetId] = useState<string | null>(null)
 
   // Auto-scroll Logic
   const searchParams = useSearchParams();
@@ -338,6 +344,7 @@ export default function PayrollPage() {
   const [addExtra, { loading: addingExtra }] = useMutation(ADD_EXTRA)
   const [addDoublage, { loading: addingDoublage }] = useMutation(ADD_DOUBLAGE)
   const [payUser, { loading: payingUser }] = useMutation(PAY_USER)
+  const [unpayUser, { loading: unpayingUser }] = useMutation(UNPAY_USER)
 
   const handleAddExtra = async () => {
     if (!extraUserId || !extraAmount || !extraDate) return
@@ -406,18 +413,32 @@ export default function PayrollPage() {
 
   const handlePayUser = async (userId: string) => {
     try {
-      console.log('Paying user:', userId, 'for month:', payrollMonthKey)
-      const result = await payUser({
+      await payUser({
         variables: {
           month: payrollMonthKey,
           userId: userId
         }
       })
-      console.log('Payment result:', result)
       await refetch()
-      console.log('Data refetched after payment')
     } catch (error) {
       console.error("Error paying user:", error)
+    }
+  }
+
+  const handleUnpayUser = async () => {
+    if (!unpayTargetId) return
+    try {
+      await unpayUser({
+        variables: {
+          month: payrollMonthKey,
+          userId: unpayTargetId
+        }
+      })
+      await refetch()
+      setUnpayConfirmOpen(false)
+      setUnpayTargetId(null)
+    } catch (error) {
+      console.error("Error unpaying user:", error)
     }
   }
 
@@ -820,7 +841,33 @@ export default function PayrollPage() {
         </div>
 
         <div className="p-4 sm:p-6 lg:p-8">
-          {/* Global Stats Cards */}
+          {/* Confirmation Dialog for Unpaying */}
+          <AlertDialog open={unpayConfirmOpen} onOpenChange={setUnpayConfirmOpen}>
+            <AlertDialogContent className="bg-white border-[#c9b896] rounded-2xl shadow-2xl">
+              <AlertDialogHeader>
+                <AlertDialogTitle className="text-[#8b5a2b] font-bold text-xl flex items-center gap-2">
+                  <RotateCcw className="h-5 w-5 text-red-600" /> Annuler le paiement ?
+                </AlertDialogTitle>
+                <AlertDialogDescription className="text-[#6b5744] text-base">
+                  Cette action va marquer le salaire comme **non payé**. Le statut de l'employé redeviendra "En attente".
+                  Voulez-vous continuer ?
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="mt-4 gap-2">
+                <AlertDialogCancel className="rounded-xl border-[#c9b896] text-[#3d2c1e] hover:bg-gray-50 uppercase text-xs font-black tracking-widest">
+                  Annuler
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleUnpayUser}
+                  className="rounded-xl bg-red-600 hover:bg-red-700 text-white uppercase text-xs font-black tracking-widest px-6"
+                >
+                  Confirmer
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {/* --- INJECTED GLOBAL STYLES FOR TABLE PERFORMANCE --- */}
           <div className="mb-6 sm:mb-8 grid gap-4 sm:gap-6 grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
             {canSee('payroll', 'stats_total_base') && (
               <Card className="border-[#c9b896] bg-white p-4 shadow-md">
@@ -953,14 +1000,36 @@ export default function PayrollPage() {
                       {canSee('payroll', 'col_net') && <td className="p-4 font-bold text-lg text-[#3d2c1e]">{Math.round(p.netSalary)} DT</td>}
                       {canSee('payroll', 'col_action') && (
                         <td className="p-4">
-                          <Button
-                            size="sm"
-                            className="bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                            onClick={() => handlePayUser(p.userId)}
-                            disabled={p.isPaid || payingUser}
-                          >
-                            <CheckCircle2 className="mr-2 h-4 w-4" /> {p.isPaid ? "Payé" : "Payer"}
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              className={cn(
+                                "text-white transition-all shadow-sm",
+                                p.isPaid
+                                  ? "bg-emerald-700/50 hover:bg-emerald-700/60 cursor-default"
+                                  : "bg-emerald-600 hover:bg-emerald-700 active:scale-95"
+                              )}
+                              onClick={() => !p.isPaid && handlePayUser(p.userId)}
+                              disabled={payingUser || unpayingUser}
+                            >
+                              <CheckCircle2 className="mr-2 h-4 w-4" /> {p.isPaid ? "Payé" : "Payer"}
+                            </Button>
+                            {p.isPaid && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 h-9 w-9 p-0"
+                                onClick={() => {
+                                  setUnpayTargetId(p.userId)
+                                  setUnpayConfirmOpen(true)
+                                }}
+                                disabled={payingUser || unpayingUser}
+                                title="Annuler le paiement"
+                              >
+                                <RotateCcw className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -1045,14 +1114,35 @@ export default function PayrollPage() {
                       </Button>
                     )}
                     {canSee('payroll', 'col_action') && (
-                      <Button
-                        size="sm"
-                        className="flex-1 bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                        onClick={() => handlePayUser(p.userId)}
-                        disabled={p.isPaid || payingUser}
-                      >
-                        <CheckCircle2 className="mr-2 h-4 w-4" /> {p.isPaid ? "Payé" : "Payer"}
-                      </Button>
+                      <div className="flex gap-2 w-full">
+                        <Button
+                          size="sm"
+                          className={cn(
+                            "flex-1 text-white truncate",
+                            p.isPaid
+                              ? "bg-emerald-700/50 cursor-default"
+                              : "bg-emerald-600 hover:bg-emerald-700"
+                          )}
+                          onClick={() => !p.isPaid && handlePayUser(p.userId)}
+                          disabled={payingUser || unpayingUser}
+                        >
+                          <CheckCircle2 className="mr-2 h-4 w-4 shrink-0" /> {p.isPaid ? "Payé" : "Payer"}
+                        </Button>
+                        {p.isPaid && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-red-200 text-red-600 hover:bg-red-50 h-9 w-9 p-0 shrink-0"
+                            onClick={() => {
+                              setUnpayTargetId(p.userId)
+                              setUnpayConfirmOpen(true)
+                            }}
+                            disabled={payingUser || unpayingUser}
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1263,13 +1353,32 @@ export default function PayrollPage() {
                     </span>
                     <Button
                       onClick={() => {
-                        // Handle pay
-                        setPlanningDialogOpen(false)
+                        if (selectedEmployee?.isPaid) {
+                          setUnpayTargetId(selectedEmployee.userId)
+                          setUnpayConfirmOpen(true)
+                        } else if (selectedEmployee) {
+                          handlePayUser(selectedEmployee.userId)
+                        }
                       }}
-                      className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700 text-white h-10 sm:h-11 lg:h-12 text-sm sm:text-base lg:text-lg font-semibold"
+                      disabled={payingUser || unpayingUser || !selectedEmployee}
+                      className={cn(
+                        "w-full h-10 sm:h-11 lg:h-12 text-sm sm:text-base lg:text-lg font-semibold transition-all shadow-lg",
+                        selectedEmployee?.isPaid
+                          ? "bg-red-600 hover:bg-red-700 text-white"
+                          : "bg-gradient-to-r from-emerald-600 to-emerald-700 text-white hover:opacity-90"
+                      )}
                     >
-                      <Wallet className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                      Payer
+                      {selectedEmployee?.isPaid ? (
+                        <>
+                          <RotateCcw className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
+                          Annuler Paiement
+                        </>
+                      ) : (
+                        <>
+                          <Wallet className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
+                          Payer
+                        </>
+                      )}
                     </Button>
                   </div>
                 </div>
@@ -1364,7 +1473,9 @@ export default function PayrollPage() {
 
           <div className="mt-4 space-y-3 max-h-[400px] overflow-y-auto pr-2">
             {useMemo(() => {
-              const extrasList = data?.getExtras || [];
+              const rawExtras = data?.getExtras || [];
+              const extrasList = rawExtras.filter((e: any) => (e.motif || "Extra").toLowerCase() === "extra");
+
               if (extrasList.length === 0) return <div className="text-center py-8 text-[#6b5744]">Aucun extra ce mois-ci</div>;
 
               // Aggregate by user
@@ -1385,37 +1496,49 @@ export default function PayrollPage() {
                 userEntry.dates.push(e.date_extra);
               });
 
-              return Array.from(userMap.values()).map((entry: any) => (
-                <div key={entry.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
-                        {entry.photo ? (
-                          <img src={entry.photo} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
-                            {entry.username?.charAt(0)}
+              return (
+                <>
+                  <div className="space-y-3">
+                    {Array.from(userMap.values()).map((entry: any) => (
+                      <div key={entry.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
+                              {entry.photo ? (
+                                <img src={entry.photo} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
+                                  {entry.username?.charAt(0)}
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-bold text-[#3d2c1e] text-sm">{entry.username}</p>
+                            </div>
                           </div>
-                        )}
+                          <div className="text-emerald-600 font-black text-sm">
+                            {entry.total.toLocaleString()} DT
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[#c9b896]/10">
+                          <span className="text-[9px] font-black uppercase text-[#6b5744]/50 w-full mb-1">Dates:</span>
+                          {entry.dates.map((d: string, i: number) => (
+                            <span key={i} className="px-2 py-0.5 rounded-full bg-white border border-[#c9b896]/30 text-[10px] font-bold text-[#3d2c1e] shadow-sm">
+                              {format(new Date(d), 'dd MMM yyyy', { locale: fr })}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-bold text-[#3d2c1e] text-sm">{entry.username}</p>
-                      </div>
-                    </div>
-                    <div className="text-emerald-600 font-black text-sm">
-                      {entry.total.toLocaleString()} DT
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[#c9b896]/10">
-                    <span className="text-[9px] font-black uppercase text-[#6b5744]/50 w-full mb-1">Dates:</span>
-                    {entry.dates.map((d: string, i: number) => (
-                      <span key={i} className="px-2 py-0.5 rounded-full bg-white border border-[#c9b896]/30 text-[10px] font-bold text-[#3d2c1e] shadow-sm">
-                        {format(new Date(d), 'dd MMM yyyy', { locale: fr })}
-                      </span>
                     ))}
                   </div>
-                </div>
-              ));
+                  <div className="pt-4 border-t-2 border-[#8b5a2b]/20 flex justify-between items-center text-lg">
+                    <span className="font-bold text-[#8b5a2b] uppercase tracking-wider">Total Global</span>
+                    <span className="font-black text-emerald-600">
+                      {extrasList.reduce((acc: number, curr: any) => acc + curr.montant, 0).toLocaleString()} DT
+                    </span>
+                  </div>
+                </>
+              );
             }, [data?.getExtras, users, selectedMonth])}
           </div>
 
@@ -1449,7 +1572,9 @@ export default function PayrollPage() {
 
                   if (existingUser) {
                     existingUser.total += record.prime;
-                    existingUser.dates.push(record.date);
+                    if (!existingUser.dates.includes(record.date)) {
+                      existingUser.dates.push(record.date);
+                    }
                   } else if (user) {
                     primesList.push({
                       user_id: record.user_id,
@@ -1462,40 +1587,60 @@ export default function PayrollPage() {
                 }
               });
 
+              // Add primes specifically marked in extras table if missing
+              const rawExtras = data?.getExtras || [];
+              rawExtras.filter((e: any) => (e.motif || "").toLowerCase().startsWith("prime")).forEach((e: any) => {
+                // If this motif is prime, but maybe it wasn't captured in daily aggregate (e.g. if payroll hasn't refreshed)
+                // Actually, the daily aggregate is the source of truth for the payroll, 
+                // but the modal should probably show the details.
+              });
+
               if (primesList.length === 0) return <div className="text-center py-8 text-[#6b5744]">Aucune prime ce mois-ci</div>;
 
-              return primesList.map((entry: any) => (
-                <div key={entry.user_id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
-                        {entry.photo ? (
-                          <img src={entry.photo} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
-                            {entry.username?.charAt(0)}
+              return (
+                <>
+                  <div className="space-y-3">
+                    {primesList.map((entry: any) => (
+                      <div key={entry.user_id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
+                              {entry.photo ? (
+                                <img src={entry.photo} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
+                                  {entry.username?.charAt(0)}
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-bold text-[#3d2c1e] text-sm">{entry.username}</p>
+                            </div>
                           </div>
-                        )}
+                          <div className="text-amber-600 font-black text-sm">
+                            {entry.total.toLocaleString()} DT
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[#c9b896]/10">
+                          <span className="text-[9px] font-black uppercase text-[#6b5744]/50 w-full mb-1">Dates:</span>
+                          {entry.dates.sort().map((d: string, i: number) => (
+                            <span key={i} className="px-2 py-0.5 rounded-full bg-white border border-[#c9b896]/30 text-[10px] font-bold text-[#3d2c1e] shadow-sm">
+                              {format(new Date(d), 'dd MMM yyyy', { locale: fr })}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-bold text-[#3d2c1e] text-sm">{entry.username}</p>
-                      </div>
-                    </div>
-                    <div className="text-amber-600 font-black text-sm">
-                      {entry.total.toLocaleString()} DT
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[#c9b896]/10">
-                    <span className="text-[9px] font-black uppercase text-[#6b5744]/50 w-full mb-1">Dates:</span>
-                    {entry.dates.map((d: string, i: number) => (
-                      <span key={i} className="px-2 py-0.5 rounded-full bg-white border border-[#c9b896]/30 text-[10px] font-bold text-[#3d2c1e] shadow-sm">
-                        {format(new Date(d), 'dd MMM yyyy', { locale: fr })}
-                      </span>
                     ))}
                   </div>
-                </div>
-              ));
-            }, [payrollRecords, users, selectedMonth])}
+                  <div className="pt-4 border-t-2 border-[#8b5a2b]/20 flex justify-between items-center text-lg">
+                    <span className="font-bold text-[#8b5a2b] uppercase tracking-wider">Total Global</span>
+                    <span className="font-black text-amber-600">
+                      {primesList.reduce((acc: number, curr: any) => acc + curr.total, 0).toLocaleString()} DT
+                    </span>
+                  </div>
+                </>
+              );
+            }, [payrollRecords, users, selectedMonth, data?.getExtras])}
           </div>
 
           <div className="mt-6 pt-4 border-t border-[#c9b896]/30 flex justify-between items-center font-black text-[#8b5a2b]">

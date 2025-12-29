@@ -474,9 +474,9 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
           {filteredEmployees.map((emp: any) => (
             <div
               key={emp.id}
-              className="p-4 bg-white flex flex-col gap-4 active:bg-[#f8f6f1] transition-colors"
+              className="group relative p-5 bg-white flex flex-col gap-4 border-b border-[#c9b896]/20 active:bg-[#fcfbf9] transition-all duration-300"
               onClick={() => {
-                if (emp.status === "Retard") {
+                if (emp.status === "Retard" && canPardon) {
                   handlePardonClick(emp);
                 } else {
                   setSelectedUser({ id: emp.id, name: emp.name });
@@ -484,26 +484,62 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                 }
               }}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="h-12 w-12 rounded-full bg-gradient-to-br from-[#8b5a2b] to-[#c9b896] p-[1px] shadow-md border border-[#c9b896]/30 overflow-hidden shrink-0">
-                    {emp.photo ? (
-                      <img src={emp.photo} alt="" className="w-full h-full object-cover rounded-full" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-white font-black text-sm uppercase">
-                        {emp.name?.substring(0, 2)}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <div className="relative shrink-0">
+                    <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-[#8b5a2b] to-[#c9b896] p-[1px] shadow-sm overflow-hidden border border-[#c9b896]/30">
+                      {emp.photo ? (
+                        <img src={emp.photo} alt="" className="w-full h-full object-cover rounded-[15px]" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-white font-bold text-lg uppercase bg-[#8b5a2b]">
+                          {emp.name?.substring(0, 1)}
+                        </div>
+                      )}
+                    </div>
+                    {/* Active Pulse indicator if present */}
+                    {(emp.status === "Connecté" || emp.status === "Présent") && (
+                      <div className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-white p-0.5 shadow-sm">
+                        <div className="h-full w-full rounded-full bg-emerald-500 animate-pulse" />
                       </div>
                     )}
                   </div>
                   <div className="flex flex-col min-w-0">
-                    <h4 className="font-black text-[#3d2c1e] text-base truncate uppercase">{emp.name}</h4>
-                    <span className="text-[10px] font-bold text-[#8b5a2b]/70 uppercase tracking-widest">{emp.department}</span>
+                    <h4 className="font-bold text-[#3d2c1e] text-lg leading-tight truncate">
+                      {emp.name}
+                    </h4>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] font-black text-[#8b5a2b]/60 uppercase tracking-widest bg-[#8b5a2b]/5 px-1.5 py-0.5 rounded">
+                        {emp.department}
+                      </span>
+                      <span className="text-[10px] text-[#8b5a2b]/40 font-bold">
+                        #{emp.zktecoId}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <div className="flex flex-col items-end gap-1">
+
+                <div className="flex flex-col items-end gap-2 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 w-9 p-0 text-[#8b5a2b] border-[#c9b896]/50 bg-white hover:bg-[#8b5a2b] hover:text-white transition-all shadow-[0_2px_10px_-3px_rgba(0,0,0,0.1)] rounded-xl"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedUser({ id: emp.id, name: emp.name });
+                      setIsModalOpen(true);
+                    }}
+                  >
+                    <ArrowUpRight className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Status Band */}
+              <div className="flex items-center justify-between mt-1">
+                <div className="flex items-center gap-2">
                   <span
                     className={cn(
-                      "inline-flex items-center rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest border shadow-sm",
+                      "inline-flex items-center rounded-lg px-3 py-1 text-[10px] font-black uppercase tracking-widest border shadow-sm",
                       (emp.status === "Connecté" || emp.status === "Présent")
                         ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                         : emp.status === "Terminé"
@@ -517,42 +553,44 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                                 : "bg-rose-50 text-rose-700 border-rose-200"
                     )}
                   >
-                    {emp.status === "Missing_Exit" ? "Manquante" : (emp.status === "Connecté" ? "Présent" : emp.status)}
+                    {emp.status === "Missing_Exit" ? "Sortie Manquante" : (emp.status === "Connecté" ? "Présent" : emp.status)}
                   </span>
                   {emp.status === "Retard" && emp.delay && (
-                    <span className="text-[9px] font-black text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-200 animate-pulse">
+                    <span className="text-[10px] font-black text-rose-600 bg-rose-50 px-2 py-1 rounded-lg border border-rose-100 animate-pulse">
                       -{emp.delay}
                     </span>
                   )}
                 </div>
-              </div>
 
-              <div className="grid grid-cols-3 gap-2 bg-[#f8f6f1]/50 p-3 rounded-xl border border-[#c9b896]/10">
-                <div className="flex flex-col items-center">
-                  <span className="text-[8px] font-black text-[#8b5a2b]/50 uppercase tracking-widest">In</span>
-                  <span className="font-mono font-black text-[#3d2c1e] text-sm">{emp.clockIn || "--:--"}</span>
-                </div>
-                <div className="flex flex-col items-center border-x border-[#c9b896]/20">
-                  <span className="text-[8px] font-black text-[#8b5a2b]/50 uppercase tracking-widest">Out</span>
-                  <span className="font-mono font-black text-[#3d2c1e] text-sm">{emp.clockOut || "--:--"}</span>
-                </div>
-                <div className="flex flex-col items-center">
-                  <span className="text-[8px] font-black text-[#8b5a2b]/50 uppercase tracking-widest">Temps</span>
-                  <span className="font-black text-emerald-700 text-sm">{emp.totalMins > 0 ? `${Math.floor(emp.totalMins / 60)}h ${emp.totalMins % 60}m` : "0h"}</span>
+                <div className="flex items-center gap-2 bg-[#f8f6f1] px-2 py-1 rounded-lg border border-[#c9b896]/10">
+                  <span className="text-[9px] font-black text-[#8b5a2b]/70 uppercase tracking-tighter">
+                    {emp.shift || "—"}
+                  </span>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between px-1">
-                <span className="text-[10px] font-black text-[#8b5a2b]/40 uppercase tracking-widest">{format(new Date(), 'dd/MM/yyyy')}</span>
-                <span className={cn(
-                  "px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-tighter border",
-                  emp.shift === "Soir" ? "bg-indigo-50 text-indigo-700 border-indigo-100" :
-                    emp.shift === "Matin" ? "bg-amber-50 text-amber-700 border-amber-100" :
-                      emp.shift === "Doublage" ? "bg-purple-50 text-purple-700 border-purple-100" :
-                        "bg-gray-50 text-gray-500 border-gray-100"
-                )}>
-                  Shift: {emp.shift || "—"}
-                </span>
+              {/* Time Details Grid */}
+              <div className="grid grid-cols-3 gap-2 mt-1">
+                <div className="bg-[#faf8f5] p-3 rounded-2xl border border-[#c9b896]/10 flex flex-col items-center justify-center gap-0.5">
+                  <span className="text-[8px] font-black text-[#8b5a2b]/40 uppercase tracking-widest">Entrée</span>
+                  <span className="font-mono font-black text-[#3d2c1e] text-base">{emp.clockIn || "--:--"}</span>
+                </div>
+                <div className="bg-[#faf8f5] p-3 rounded-2xl border border-[#c9b896]/10 flex flex-col items-center justify-center gap-0.5">
+                  <span className="text-[8px] font-black text-[#8b5a2b]/40 uppercase tracking-widest">Sortie</span>
+                  <span className="font-mono font-black text-[#3d2c1e] text-base">{emp.clockOut || "--:--"}</span>
+                </div>
+                <div className="bg-[#f0f9f4] p-3 rounded-2xl border border-emerald-100 flex flex-col items-center justify-center gap-0.5">
+                  <span className="text-[8px] font-black text-emerald-700/50 uppercase tracking-widest">Temps</span>
+                  <span className="font-black text-emerald-700 text-base">
+                    {emp.totalMins > 0 ? `${Math.floor(emp.totalMins / 60)}h ${emp.totalMins % 60}m` : "0h"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Footer info */}
+              <div className="flex items-center justify-between text-[9px] font-bold text-[#8b5a2b]/30 uppercase tracking-[0.2em] px-1">
+                <span>Business Bey — L'aouina</span>
+                <span>{format(date || new Date(), "dd/MM/yyyy")}</span>
               </div>
             </div>
           ))}

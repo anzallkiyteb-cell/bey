@@ -103,7 +103,6 @@ function DashboardContent() {
     nextFetchPolicy: "cache-first",
     pollInterval: 60000, // Poll every 60 seconds
     onCompleted: (data) => {
-      console.log('[Dashboard] Personnel data loaded:', data?.personnelStatus?.length, 'employees');
     },
     onError: (error) => {
       console.error('[Dashboard] Personnel query error:', error);
@@ -119,7 +118,6 @@ function DashboardContent() {
     nextFetchPolicy: "cache-first",
     skip: !personnelData,
     onCompleted: (data) => {
-      console.log('[Dashboard] Financial data loaded');
     },
     onError: (error) => {
       console.error('[Dashboard] Financial query error:', error);
@@ -138,10 +136,8 @@ function DashboardContent() {
 
   useEffect(() => {
     if (personnelLoading) {
-      console.log('[Dashboard] Loading personnel data...');
     }
     if (financialLoading) {
-      console.log('[Dashboard] Loading financial data...');
     }
   }, [personnelLoading, financialLoading]);
 

@@ -27,7 +27,7 @@ import { ChevronLeft, FileText, Printer, Save, RefreshCw, AlertCircle, TrendingU
 import { useState, useMemo, useEffect } from "react"
 import { gql, useQuery, useMutation } from "@apollo/client"
 import { useParams, useRouter } from "next/navigation"
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth } from "date-fns"
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, getDaysInMonth } from "date-fns"
 import { fr } from "date-fns/locale"
 import { NotificationBell } from "@/components/notification-bell"
 import { cn } from "@/lib/utils"
@@ -62,6 +62,7 @@ const GET_PAYROLL = gql`
       doublage
       clock_in
       clock_out
+      paid
     }
   }
 `
@@ -161,16 +162,22 @@ export default function UserFichePage() {
 
     // Calculations
     const stats = useMemo(() => {
-        const totalDays = payroll.reduce((sum: number, r: any) => sum + (r.present ? 1 : 0), 0)
-        const totalAbsents = payroll.filter((r: any) => r.present === 0).length
-        const totalRetardMins = payroll.reduce((sum: number, r: any) => sum + (r.retard || 0), 0)
+        const monthDate = new Date(selectedMonth.replace("_", "-") + "-01");
+        const daysInMonth = getDaysInMonth(monthDate);
 
-        // Rule: Each retard > 30 mins = -30 DT (Handled in DB via infraction column)
-        const retardPenaltyTotal = payroll.reduce((sum: number, r: any) => sum + (r.retard > 30 ? 30 : 0), 0)
+        const totalPresentOnWorkDays = payroll.reduce((sum: number, r: any) => sum + (r.present === 1 ? 1 : 0), 0)
 
         const baseSalary = user?.base_salary || 0
-        const dayValue = baseSalary / 30
-        const calculatedSalary = dayValue * totalDays
+        const dayValue = baseSalary / daysInMonth
+
+        // USER LOGIC: (BaseSalary / DaysInMonth) * (PresentDays + 4)
+        const paidDays = Math.min(daysInMonth, totalPresentOnWorkDays + 4);
+        const calculatedSalary = dayValue * paidDays;
+
+        const totalAbsentsDisplay = daysInMonth - paidDays;
+
+        const totalRetardMins = payroll.reduce((sum: number, r: any) => sum + (r.retard || 0), 0)
+        const retardPenaltyTotal = payroll.reduce((sum: number, r: any) => sum + (r.retard > 30 ? 30 : 0), 0)
 
         const totalAdvances = payroll.reduce((sum: number, r: any) => sum + (r.acompte || 0), 0)
         const totalPrimes = payroll.reduce((sum: number, r: any) => sum + (r.prime || 0), 0)
@@ -178,12 +185,14 @@ export default function UserFichePage() {
         const totalExtras = payroll.reduce((sum: number, r: any) => sum + (r.extra || 0), 0)
         const totalDoublages = payroll.reduce((sum: number, r: any) => sum + (r.doublage || 0), 0)
 
-        // Net Salary: Presence - Infractions - Advances
+        const isPaid = payroll.some((r: any) => r.paid === true)
+
+        // Net Salary: Presence - Infractions - Advances (EXCLUDES primes/extras/doublages)
         const netSalary = calculatedSalary - totalInfractions - totalAdvances
 
         return {
-            totalDays,
-            totalAbsents,
+            totalDays: totalPresentOnWorkDays,
+            totalAbsents: totalAbsentsDisplay,
             totalRetardMins,
             retardPenaltyTotal,
             calculatedSalary,
@@ -192,7 +201,8 @@ export default function UserFichePage() {
             totalInfractions,
             totalExtras,
             totalDoublages,
-            netSalary
+            netSalary,
+            isPaid
         }
     }, [payroll, user, selectedMonth])
 
@@ -357,8 +367,13 @@ export default function UserFichePage() {
                                 <ChevronLeft className="h-6 w-6" />
                             </Button>
                             <div>
-                                <h1 className="font-[family-name:var(--font-heading)] text-2xl sm:text-3xl font-bold text-[#8b5a2b]">
+                                <h1 className="font-[family-name:var(--font-heading)] text-2xl sm:text-3xl font-bold text-[#8b5a2b] flex items-center gap-3">
                                     Fiche de Paie — {user.username}
+                                    {stats.isPaid && (
+                                        <span className="text-xs bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full border border-emerald-200 uppercase font-black tracking-widest animate-pulse">
+                                            Payé
+                                        </span>
+                                    )}
                                 </h1>
                                 <p className="text-[#6b5744]">Détails du salaire et présences</p>
                             </div>

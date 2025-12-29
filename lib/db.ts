@@ -25,7 +25,6 @@ pool.on('error', (err: Error) => {
 // Log connection stats periodically in development
 if (process.env.NODE_ENV !== 'production') {
     setInterval(() => {
-        console.log(`[DB Pool] Total: ${pool.totalCount}, Idle: ${pool.idleCount}, Waiting: ${pool.waitingCount}`);
     }, 30000); // Every 30 seconds
 }
 

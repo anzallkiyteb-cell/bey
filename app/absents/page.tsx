@@ -169,7 +169,7 @@ export default function AbsentsPage() {
         setDialogOpen(true);
         setSelectedUser(null);
         setFormDate(range?.from ? format(range.from, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'));
-        setFormTime("08:00");
+        setFormTime("07:00");
         setReason("");
         setType("Non justifié");
     }

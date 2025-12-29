@@ -263,12 +263,17 @@ const typeDefs = `#graphql
     pardonLate(userId: ID!, date: String!): PayrollRecord
     changePassword(userId: ID!, oldPassword: String!, newPassword: String!): Boolean
     payUser(month: String!, userId: ID!): Boolean
+    unpayUser(month: String!, userId: ID!): Boolean
   }
 `;
 
 // Helper to format timestamps to HH:mm
 const formatTime = (dateStr: string) => {
   if (!dateStr) return null;
+  // If it's a raw ZK string like "2025-12-29 07:15:00", just take the HH:mm
+  if (typeof dateStr === 'string' && dateStr.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
+    return dateStr.substring(11, 16);
+  }
   try {
     const date = new Date(dateStr);
     if (isNaN(date.getTime())) return null;
@@ -849,13 +854,11 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
     if (shiftType !== "Repos") {
       if (user.departement === 'Chef_Cuisine') {
         let totalRetard = 0;
-        const shift1Start = new Date(logicalDay);
-        shift1Start.setHours(11, 0, 0, 0);
-        const shift2Start = new Date(logicalDay);
-        shift2Start.setHours(19, 0, 0, 0);
+        const shift1Start = new Date(`${dateSQL}T11:00:00.000+01:00`);
+        const shift2Start = new Date(`${dateSQL}T19:00:00.000+01:00`);
 
         const p1 = userPunches.find((p: any) => {
-          const d = new Date(p.device_time);
+          const d = new Date(typeof p.device_time === 'string' ? p.device_time.replace(" ", "T") + "+01:00" : p.device_time);
           return d.getHours() >= 4 && d.getHours() < 15;
         });
         if (p1) {
@@ -867,7 +870,7 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
         }
 
         const p2 = userPunches.find((p: any) => {
-          const d = new Date(p.device_time);
+          const d = new Date(typeof p.device_time === 'string' ? p.device_time.replace(" ", "T") + "+01:00" : p.device_time);
           return d.getHours() >= 16;
         });
         if (p2) {
@@ -897,15 +900,14 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
         let startHour = 7;
         if (sTypeUpper === "SOIR") startHour = 16;
 
-        const shiftStartTime = new Date(logicalDay);
-        shiftStartTime.setHours(startHour, 0, 0, 0);
+
+        const shiftStartTime = new Date(`${dateSQL}T${String(startHour).padStart(2, "0")}:00:00.000+01:00`);
 
         if (userPunches.length === 0) {
           const isMatinOrDoublage = sTypeUpper === "MATIN" || sTypeUpper === "DOUBLAGE";
           const shiftStartHour = isMatinOrDoublage ? 7 : 16;
           const shiftStartMin = 0;
-          const shiftStartTimeAbs = new Date(logicalDay);
-          shiftStartTimeAbs.setHours(shiftStartHour, shiftStartMin, 0, 0);
+          const shiftStartTimeAbs = new Date(`${dateSQL}T${String(shiftStartHour).padStart(2, "0")}:00:00.000+01:00`);
 
           // Threshold of 30 minutes late to consider auto-absent
           const thresholdTime = new Date(shiftStartTimeAbs.getTime() + 30 * 60000);
@@ -1798,10 +1800,10 @@ const resolvers = {
         let liveDelay = null;
         let isLiveRetard = false;
         if (hasPunches && sTypeUpper !== "REPOS") {
-          let startHour = (sTypeUpper === "SOIR") ? 16 : 7; // Changed from 8 to 7 per user request
-          const shiftStartTime = new Date(logicalDay);
-          shiftStartTime.setHours(startHour, 0, 0, 0);
-          const firstD = new Date(userPunches[0].device_time);
+          let startHour = (sTypeUpper === "SOIR") ? 16 : 7;
+
+          const shiftStartTime = new Date(`${dateSQL}T${String(startHour).padStart(2, "0")}:00:00.000+01:00`);
+          const firstD = new Date(typeof userPunches[0].device_time === 'string' ? userPunches[0].device_time.replace(" ", "T") + "+01:00" : userPunches[0].device_time);
           if (firstD > shiftStartTime) {
             const diffMins = Math.floor((firstD.getTime() - shiftStartTime.getTime()) / 60000);
             if (diffMins > 0) {
@@ -2661,7 +2663,7 @@ const resolvers = {
           if (shiftType !== "Repos") {
             if (userDept === 'Chef_Cuisine') {
               // Chef has shift starting at 11:00 AM
-              const shiftStart = new Date(dateSQL as string + 'T11:00:00');
+              const shiftStart = new Date(dateSQL as string + 'T11:00:00.000+01:00');
               const actualArrival = new Date(shiftStart.getTime() + (input.retard * 60000));
               newClockIn = formatTime(actualArrival.toISOString());
             } else {
@@ -2669,7 +2671,7 @@ const resolvers = {
               let startHour = 7;
               if (shiftType === "Soir") startHour = 16;
 
-              const shiftStart = new Date(dateSQL as string + `T${String(startHour).padStart(2, '0')}:00:00`);
+              const shiftStart = new Date(dateSQL as string + `T${String(startHour).padStart(2, '0')}:00:00.000+01:00`);
               const actualArrival = new Date(shiftStart.getTime() + (input.retard * 60000));
               newClockIn = formatTime(actualArrival.toISOString());
             }
@@ -2867,6 +2869,8 @@ const resolvers = {
       let targetClockIn = record.clock_in;
       let targetClockOut = record.clock_out;
 
+      const isAbsent = record.present === 0;
+
       if (schedule) {
         const dayOfWeekIndex = new Date(dateSQL + 'T12:00:00').getDay();
         const dayCols = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
@@ -2874,20 +2878,20 @@ const resolvers = {
 
         if (departement === 'Chef_Cuisine') {
           targetClockIn = "11:00";
-          if (!targetClockOut) targetClockOut = "22:00";
+          if (isAbsent && !targetClockOut) targetClockOut = "22:00";
         } else {
           if (shiftType === "Soir") {
             targetClockIn = "16:00";
-            if (!targetClockOut) targetClockOut = "23:00";
+            if (isAbsent && !targetClockOut) targetClockOut = "23:00";
           } else {
             targetClockIn = "07:00";
-            if (!targetClockOut) targetClockOut = "16:00";
+            if (isAbsent && !targetClockOut) targetClockOut = "16:00";
           }
         }
 
         // Only override clock_out if user is already finished or if they specifically left early causing issues
         // If Matin shift normally ends at 16:00
-        if (shiftType === "Matin" && targetClockOut && targetClockOut < "16:00") {
+        if (isAbsent && shiftType === "Matin" && targetClockOut && targetClockOut < "16:00") {
           targetClockOut = "16:00";
         }
       }
@@ -2903,7 +2907,8 @@ const resolvers = {
       await pool.query('DELETE FROM public.absents WHERE user_id = $1 AND date::date = $2::date', [userId, dateSQL]);
       await pool.query(`DELETE FROM public.extras WHERE user_id = $1 AND date_extra::date = $2::date AND LOWER(motif) LIKE 'infraction%'`, [userId, dateSQL]);
 
-      await createNotification('system', "Pointage Pardonné", `Le retard de ${username} pour le ${dateSQL} a été annulé (Pardon).`, userId, context.userDone);
+      const actionType = isAbsent ? "L'absence" : "Le retard";
+      await createNotification('system', "Pointage Pardonné", `${actionType} de ${username} pour le ${dateSQL} a été annulé (Pardon).`, userId, context.userDone);
       invalidateCache();
 
       const final = await pool.query(`SELECT * FROM public."${tableName}" WHERE id = $1`, [record.id]);
@@ -2937,6 +2942,36 @@ const resolvers = {
       } catch (error) {
         console.error('Error paying user:', error);
         throw new Error('Failed to mark user as paid');
+      }
+    },
+    unpayUser: async (_: any, { month, userId }: { month: string, userId: string }, context: any) => {
+      const tableName = `paiecurrent_${month}`;
+
+      try {
+        // Update all records for this user in this month to paid = false
+        await pool.query(
+          `UPDATE public."${tableName}" SET paid = false WHERE user_id = $1`,
+          [userId]
+        );
+
+        // Get username for notification
+        const userRes = await pool.query('SELECT username FROM public.users WHERE id = $1', [userId]);
+        const username = userRes.rows[0]?.username || 'Employé';
+
+        // Create notification
+        await createNotification(
+          'payment',
+          "Annulation Paiement",
+          `Le paiement du salaire de ${username} pour ${month.replace('_', '/')} a été annulé par un administrateur.`,
+          userId,
+          context.userDone
+        );
+
+        invalidateCache();
+        return true;
+      } catch (error) {
+        console.error('Error unpaying user:', error);
+        throw new Error('Failed to unmark user as paid');
       }
     }
   },
