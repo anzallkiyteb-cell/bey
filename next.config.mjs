@@ -12,6 +12,8 @@ const nextConfig = {
     images: {
         unoptimized: true,
     },
+    // Empty Turbopack config to silence Next.js 16 warning
+    turbopack: {},
     webpack: (config, { dev, isServer }) => {
         if (dev && !isServer) {
             config.watchOptions = {
