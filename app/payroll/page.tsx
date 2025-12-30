@@ -135,8 +135,8 @@ const calculateUserStats = (user: any, userRecords: any[], userSchedule: any, mo
   const baseSalary = user.base_salary || 0;
   const dayValue = baseSalary / divisor;
 
-  // USER LOGIC: (BaseSalary / Divisor) * (PresentDays + 4)
-  const paidDays = presentDays + 4;
+  // USER LOGIC: (BaseSalary / Divisor) * PresentDays
+  const paidDays = presentDays;
   const calculatedSalary = dayValue * paidDays;
 
   const totalPrimes = userRecords.reduce((sum: number, r: any) => sum + (r.prime || 0), 0);

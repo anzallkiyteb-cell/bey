@@ -202,8 +202,8 @@ export default function UserFichePage() {
         const baseSalary = user?.base_salary || 0
         const dayValue = baseSalary / divisor
 
-        // USER LOGIC: (BaseSalary / Divisor) * (PresentDays + 4)
-        const paidDays = totalPresentOnWorkDays + 4;
+        // USER LOGIC: (BaseSalary / Divisor) * PresentDays
+        const paidDays = totalPresentOnWorkDays;
         const calculatedSalary = dayValue * paidDays;
 
         const totalAbsentsDisplay = daysInMonth - paidDays;
@@ -236,7 +236,7 @@ export default function UserFichePage() {
             netSalary,
             isPaid
         }
-    }, [payroll, user, selectedMonth])
+    }, [payroll, user, selectedMonth, nbMonth])
 
     const handleSync = async () => {
         if (stats.isPaid) return;
@@ -535,185 +535,194 @@ export default function UserFichePage() {
 
                 <div className="p-6 sm:p-8 lg:p-10 max-w-6xl mx-auto print:p-0 print:max-w-none print:m-0 print-container">
                     {/* Printable Sheet */}
-                    <Card className="bg-white border-[#c9b896] shadow-xl p-8 sm:p-12 print:p-2 print:border-px print:border-[#3d2c1e] print:shadow-none min-h-[900px] print:min-h-0 print:w-full print:rounded-none card-print">
-                        {/* Header section identical to photo */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 border border-[#3d2c1e] print:text-[12px] print:p-0">
-                            <div className="p-4 print:p-2 border-r sm:border-r border-b border-[#3d2c1e] space-y-1">
-                                <p className="text-sm print:text-[11.5px]"><strong>Nom:</strong> {user.username.split(' ')[1] || ""}</p>
-                                <p className="text-sm print:text-[11.5px]"><strong>Prénom:</strong> {user.username.split(' ')[0] || ""}</p>
-                                <p className="text-sm print:text-[11.5px]"><strong>Poste:</strong> {user.departement}</p>
-                                <p className="text-sm print:text-[11.5px]"><strong>Salaire Base:</strong> {user.base_salary} DT</p>
+                    <Card className="bg-white border-[#c9b896] shadow-xl p-8 sm:p-12 print:p-2 print:border-px print:border-[#3d2c1e] print:shadow-none min-h-[900px] print:min-h-0 print:w-full print:rounded-none card-print relative overflow-hidden">
+                        {stats.isPaid && (
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 overflow-hidden">
+                                <span className="text-[200px] sm:text-[300px] font-black text-gray-300 uppercase -rotate-45 select-none print:text-gray-300 whitespace-nowrap opacity-40">
+                                    PAYÉ
+                                </span>
                             </div>
-                            <div className="p-4 print:p-2 border-b border-[#3d2c1e] space-y-1">
-                                <p className="text-sm print:text-[11.5px]"><strong>Tél:</strong> {user.phone || "-"}</p>
-                                <p className="text-sm print:text-[11.5px]"><strong>CIN:</strong> {user.cin || "-"}</p>
-                                <p className="text-sm print:text-[11.5px] text-gray-500">Mois: {months.find(m => m.value === selectedMonth)?.label}</p>
+                        )}
+                        <div className="relative z-10">
+                            {/* Header section identical to photo */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 border border-[#3d2c1e] print:text-[12px] print:p-0">
+                                <div className="p-4 print:p-2 border-r sm:border-r border-b border-[#3d2c1e] space-y-1">
+                                    <p className="text-sm print:text-[11.5px]"><strong>Nom:</strong> {user.username.split(' ')[1] || ""}</p>
+                                    <p className="text-sm print:text-[11.5px]"><strong>Prénom:</strong> {user.username.split(' ')[0] || ""}</p>
+                                    <p className="text-sm print:text-[11.5px]"><strong>Poste:</strong> {user.departement}</p>
+                                    <p className="text-sm print:text-[11.5px]"><strong>Salaire Base:</strong> {user.base_salary} DT</p>
+                                </div>
+                                <div className="p-4 print:p-2 border-b border-[#3d2c1e] space-y-1">
+                                    <p className="text-sm print:text-[11.5px]"><strong>Tél:</strong> {user.phone || "-"}</p>
+                                    <p className="text-sm print:text-[11.5px]"><strong>CIN:</strong> {user.cin || "-"}</p>
+                                    <p className="text-sm print:text-[11.5px] text-gray-500">Mois: {months.find(m => m.value === selectedMonth)?.label}</p>
+                                </div>
                             </div>
-                        </div>
-                        {/* Main Table */}
-                        <div className="mt-2 print:mt-2">
-                            {/* Unified Table View - Visible on all devices with horizontal scroll */}
-                            <div className="block print:block overflow-x-auto">
-                                <table className="w-full border-collapse border border-[#3d2c1e] print:text-[10px] print:leading-none min-w-[800px] md:min-w-0">
-                                    <thead>
-                                        <tr className="bg-[#f8f6f1]/50">
-                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-left w-24">Date</th>
-                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-left w-24">Jour</th>
-                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Présence</th>
-                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Retard</th>
-                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Entrée</th>
-                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-center w-20">Sortie</th>
-                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Acompte</th>
-                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Extra</th>
-                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-20">Double</th>
-                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Prime</th>
-                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-right w-24">Infraction</th>
-                                            <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[10px] font-bold uppercase text-left">Remarque</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {payroll.map((record: any) => {
-                                            const date = new Date(record.date)
-                                            const dayName = format(date, "eeee", { locale: fr })
-                                            const isWeekend = date.getDay() === 0 // Dimanche
+                            {/* Main Table */}
+                            <div className="mt-2 print:mt-2">
+                                {/* Unified Table View - Visible on all devices with horizontal scroll */}
+                                <div className="block print:block overflow-x-auto">
+                                    <table className="w-full border-collapse border border-[#3d2c1e] print:text-[10px] print:leading-none min-w-[800px] md:min-w-0 print:min-w-0 print:table-fixed">
+                                        <thead>
+                                            <tr className="bg-[#f8f6f1]/50">
+                                                <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[8px] font-bold uppercase text-left w-24 print:w-[8%]">Date</th>
+                                                <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[8px] font-bold uppercase text-left w-24 print:w-[8%]">Jour</th>
+                                                <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[8px] font-bold uppercase text-center w-20 print:w-[5%]">Prés.</th>
+                                                <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[8px] font-bold uppercase text-center w-20 print:w-[5%]">Ret.</th>
+                                                <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[8px] font-bold uppercase text-center w-20 print:w-[7%]">Entrée</th>
+                                                <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[8px] font-bold uppercase text-center w-20 print:w-[7%]">Sortie</th>
+                                                <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[8px] font-bold uppercase text-right w-24 print:w-[7%]">Acompte</th>
+                                                <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[8px] font-bold uppercase text-right w-24 print:w-[7%]">Extra</th>
+                                                <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[8px] font-bold uppercase text-right w-20 print:w-[6%]">Dbl</th>
+                                                <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[8px] font-bold uppercase text-right w-24 print:w-[7%]">Prime</th>
+                                                <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[8px] font-bold uppercase text-right w-24 print:w-[7%]">Infract.</th>
+                                                <th className="border border-[#3d2c1e] p-2 print:p-1 text-xs print:text-[8px] font-bold uppercase text-left print:w-[26%]">Remarque</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {payroll.map((record: any) => {
+                                                const date = new Date(record.date)
+                                                const dayName = format(date, "eeee", { locale: fr })
+                                                const isWeekend = date.getDay() === 0 // Dimanche
 
-                                            return (
-                                                <tr
-                                                    key={record.id}
-                                                    onClick={() => !stats.isPaid && startEdit(record)}
-                                                    className={cn(
-                                                        "transition-colors group",
-                                                        isWeekend && "bg-gray-50",
-                                                        !stats.isPaid ? "hover:bg-[#f8f6f1]/30 cursor-pointer" : "cursor-default"
-                                                    )}
-                                                >
-                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] group-hover:bg-[#8b5a2b]/5 transition-colors">{format(date, "dd/MM/yyyy")}</td>
-                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] capitalize group-hover:bg-[#8b5a2b]/5 transition-colors">{dayName}</td>
-                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-bold group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                        {record.present === 1 ? "1" : record.present === 0 ? "0" : ""}
-                                                    </td>
-                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center text-orange-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                        {record.retard > 0 ? formatDuration(record.retard) : "-"}
-                                                    </td>
-                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-mono group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                        {record.clock_in || "-"}
-                                                    </td>
-                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-mono group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                        {record.clock_out || "-"}
-                                                    </td>
-                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                        {record.acompte > 0 ? `${record.acompte} DT` : ""}
-                                                    </td>
-                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-emerald-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                        {record.extra > 0 ? `${record.extra} DT` : ""}
-                                                    </td>
-                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-cyan-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                        {record.doublage > 0 ? `${record.doublage} DT` : ""}
-                                                    </td>
-                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-blue-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                        {record.prime > 0 ? `${record.prime} DT` : "-"}
-                                                    </td>
-                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-red-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                        {record.infraction > 0 ? `${record.infraction} DT` : "-"}
-                                                    </td>
-                                                    <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] italic group-hover:bg-[#8b5a2b]/5 transition-colors">
-                                                        {record.remarque || (record.present === 0 ? "ABSENT" : "")}
-                                                    </td>
-                                                </tr>
-                                            )
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        {/* Footer Summaries - Redesigned as a single cohesive block */}
-                        <div className="mt-2 print:mt-2 grid grid-cols-1 md:grid-cols-2 gap-4 print:grid-cols-2 print:gap-x-4 summary-section">
-                            {/* Column 1: Presence & Base Stats */}
-                            <div className="space-y-2">
-                                <table className="w-full border-collapse border border-[#3d2c1e] print:text-[11.5px]">
-                                    <thead>
-                                        <tr className="bg-[#f8f6f1]">
-                                            <th colSpan={2} className="border border-[#3d2c1e] p-1 print:p-0.5 font-black uppercase text-center text-[#8b5a2b]">Statistiques & Présence</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td className="border border-[#3d2c1e] p-2 print:p-0.5 font-bold">Total Jours Travail</td>
-                                            <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-right font-black">{stats.totalDays}</td>
-                                        </tr>
-                                        <tr>
-                                            <td className="border border-[#3d2c1e] p-2 print:p-0.5 font-bold">Total Jours Absence</td>
-                                            <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-right font-black text-red-600">{stats.totalAbsents}</td>
-                                        </tr>
-                                        <tr>
-                                            <td className="border border-[#3d2c1e] p-2 print:p-0.5 font-bold">Total Retards</td>
-                                            <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-right font-black">{formatDuration(stats.totalRetardMins)}</td>
-                                        </tr>
-                                        <tr className="bg-[#f8f6f1]/30">
-                                            <td className="border border-[#3d2c1e] p-2 print:p-0.5 font-bold text-[#8b5a2b]">Salaire (Présence)</td>
-                                            <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-right font-black text-[#8b5a2b]">
-                                                {stats.calculatedSalary.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-
-                                {/* Primes & Extras Box (Separate because they are separately paid) */}
-                                <div className="p-2 border-2 border-dashed border-[#8b5a2b]/30 rounded-xl bg-[#f8f6f1]/20 print:p-1 print:border-px space-y-0.5">
-                                    <h4 className="text-[9px] print:text-[8px] font-black uppercase text-[#8b5a2b]">Gains Hors Salaire (Espèces)</h4>
-                                    <div className="flex justify-between items-center text-xs print:text-[8.5px]">
-                                        <span className="font-medium text-blue-700">Total Primes</span>
-                                        <span className="font-black text-blue-700">{stats.totalPrimes.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-xs print:text-[8.5px]">
-                                        <span className="font-medium text-emerald-700">Total Extras</span>
-                                        <span className="font-black text-emerald-700">{stats.totalExtras.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-xs print:text-[8.5px]">
-                                        <span className="font-medium text-cyan-700">Total Doublages (Espèces)</span>
-                                        <span className="font-black text-cyan-700">{stats.totalDoublages.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT</span>
-                                    </div>
+                                                return (
+                                                    <tr
+                                                        key={record.id}
+                                                        onClick={() => !stats.isPaid && startEdit(record)}
+                                                        className={cn(
+                                                            "transition-colors group",
+                                                            isWeekend && "bg-gray-50",
+                                                            !stats.isPaid ? "hover:bg-[#f8f6f1]/30 cursor-pointer" : "cursor-default"
+                                                        )}
+                                                    >
+                                                        <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] group-hover:bg-[#8b5a2b]/5 transition-colors">{format(date, "dd/MM/yyyy")}</td>
+                                                        <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] capitalize group-hover:bg-[#8b5a2b]/5 transition-colors">{dayName}</td>
+                                                        <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-bold group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                            {record.present === 1 ? "1" : record.present === 0 ? "0" : ""}
+                                                        </td>
+                                                        <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center text-orange-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                            {record.retard > 0 ? formatDuration(record.retard) : "-"}
+                                                        </td>
+                                                        <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-mono group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                            {record.clock_in || "-"}
+                                                        </td>
+                                                        <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-center font-mono group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                            {record.clock_out || "-"}
+                                                        </td>
+                                                        <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                            {record.acompte > 0 ? `${record.acompte} DT` : ""}
+                                                        </td>
+                                                        <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-emerald-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                            {record.extra > 0 ? `${record.extra} DT` : ""}
+                                                        </td>
+                                                        <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-cyan-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                            {record.doublage > 0 ? `${record.doublage} DT` : ""}
+                                                        </td>
+                                                        <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-blue-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                            {record.prime > 0 ? `${record.prime} DT` : "-"}
+                                                        </td>
+                                                        <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] text-right text-red-600 group-hover:bg-[#8b5a2b]/5 transition-colors">
+                                                            {record.infraction > 0 ? `${record.infraction} DT` : "-"}
+                                                        </td>
+                                                        <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-sm print:text-[9px] italic group-hover:bg-[#8b5a2b]/5 transition-colors whitespace-nowrap print:whitespace-normal">
+                                                            {record.remarque || (record.present === 0 ? "ABSENT" : "")}
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            })}
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
 
-                            {/* Column 2: Deductions & Final Total */}
-                            <div className="space-y-2">
-                                <table className="w-full border-collapse border border-[#3d2c1e] print:text-[11.5px]">
-                                    <thead>
-                                        <tr className="bg-[#f8f6f1]">
-                                            <th colSpan={2} className="border border-[#3d2c1e] p-1 print:p-0.5 font-black uppercase text-center text-red-700">Déductions & Avances</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td className="border border-[#3d2c1e] p-2 print:p-0.5 font-bold">Avances (Acomptes)</td>
-                                            <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-right font-black text-red-600">-{stats.totalAdvances.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT</td>
-                                        </tr>
-                                        <tr>
-                                            <td className="border border-[#3d2c1e] p-2 print:p-0.5 font-bold">Infractions (Automatiques + Manuelles)</td>
-                                            <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-right font-black text-red-600">-{stats.totalInfractions.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT</td>
-                                        </tr>
-                                        <tr className="bg-[#8b5a2b] text-white print:h-10">
-                                            <td className="border border-[#3d2c1e] p-2 print:p-1 text-sm font-black uppercase">Net à Payer</td>
-                                            <td className="border border-[#3d2c1e] p-2 print:p-1 text-lg print:text-base text-right font-black">
-                                                {stats.netSalary.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
+                            {/* Footer Summaries - Redesigned as a single cohesive block */}
+                            <div className="mt-2 print:mt-2 grid grid-cols-1 md:grid-cols-2 gap-4 print:grid-cols-2 print:gap-x-4 summary-section">
+                                {/* Column 1: Presence & Base Stats */}
+                                <div className="space-y-2">
+                                    <table className="w-full border-collapse border border-[#3d2c1e] print:text-[11.5px]">
+                                        <thead>
+                                            <tr className="bg-[#f8f6f1]">
+                                                <th colSpan={2} className="border border-[#3d2c1e] p-1 print:p-0.5 font-black uppercase text-center text-[#8b5a2b]">Statistiques & Présence</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 font-bold">Total Jours Travail</td>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-right font-black">{stats.totalDays}</td>
+                                            </tr>
+                                            <tr>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 font-bold">Total Jours Absence</td>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-right font-black text-red-600">{stats.totalAbsents}</td>
+                                            </tr>
+                                            <tr>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 font-bold">Total Retards</td>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-right font-black">{formatDuration(stats.totalRetardMins)}</td>
+                                            </tr>
+                                            <tr className="bg-[#f8f6f1]/30">
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 font-bold text-[#8b5a2b]">Salaire (Présence)</td>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-right font-black text-[#8b5a2b]">
+                                                    {stats.calculatedSalary.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
 
-                        {/* Signature areas */}
-                        <div className="mt-4 print:mt-2 flex justify-between px-10 signatures">
-                            <div className="text-center">
-                                <p className="font-bold underline text-xs print:text-[10px]">Signature Employeur</p>
-                                <div className="h-6 print:h-6"></div>
+                                    {/* Primes & Extras Box (Separate because they are separately paid) */}
+                                    <div className="p-2 border-2 border-dashed border-[#8b5a2b]/30 rounded-xl bg-[#f8f6f1]/20 print:p-1 print:border-px space-y-0.5">
+                                        <h4 className="text-[9px] print:text-[8px] font-black uppercase text-[#8b5a2b]">Gains Hors Salaire (Espèces)</h4>
+                                        <div className="flex justify-between items-center text-xs print:text-[8.5px]">
+                                            <span className="font-medium text-blue-700">Total Primes</span>
+                                            <span className="font-black text-blue-700">{stats.totalPrimes.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs print:text-[8.5px]">
+                                            <span className="font-medium text-emerald-700">Total Extras</span>
+                                            <span className="font-black text-emerald-700">{stats.totalExtras.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs print:text-[8.5px]">
+                                            <span className="font-medium text-cyan-700">Total Doublages (Espèces)</span>
+                                            <span className="font-black text-cyan-700">{stats.totalDoublages.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Column 2: Deductions & Final Total */}
+                                <div className="space-y-2">
+                                    <table className="w-full border-collapse border border-[#3d2c1e] print:text-[11.5px]">
+                                        <thead>
+                                            <tr className="bg-[#f8f6f1]">
+                                                <th colSpan={2} className="border border-[#3d2c1e] p-1 print:p-0.5 font-black uppercase text-center text-red-700">Déductions & Avances</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 font-bold">Avances (Acomptes)</td>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-right font-black text-red-600">-{stats.totalAdvances.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT</td>
+                                            </tr>
+                                            <tr>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 font-bold">Infractions (Automatiques + Manuelles)</td>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-0.5 text-right font-black text-red-600">-{stats.totalInfractions.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT</td>
+                                            </tr>
+                                            <tr className="bg-[#8b5a2b] text-white print:h-10">
+                                                <td className="border border-[#3d2c1e] p-2 print:p-1 text-sm font-black uppercase">Net à Payer</td>
+                                                <td className="border border-[#3d2c1e] p-2 print:p-1 text-lg print:text-base text-right font-black">
+                                                    {stats.netSalary.toLocaleString('fr-FR', { minimumFractionDigits: 1 })} DT
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
-                            <div className="text-center">
-                                <p className="font-bold underline text-xs print:text-[10px]">Signature Employé</p>
-                                <div className="h-6 print:h-6"></div>
+
+                            {/* Signature areas */}
+                            <div className="mt-4 print:mt-2 flex justify-between px-10 signatures">
+                                <div className="text-center">
+                                    <p className="font-bold underline text-xs print:text-[10px]">Signature Employeur</p>
+                                    <div className="h-6 print:h-6"></div>
+                                </div>
+                                <div className="text-center">
+                                    <p className="font-bold underline text-xs print:text-[10px]">Signature Employé</p>
+                                    <div className="h-6 print:h-6"></div>
+                                </div>
                             </div>
                         </div>
                     </Card>
@@ -847,7 +856,7 @@ export default function UserFichePage() {
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
-            </main>
-        </div>
+            </main >
+        </div >
     )
 }
