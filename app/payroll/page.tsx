@@ -38,16 +38,14 @@ import { Calendar } from "@/components/ui/calendar"
 // GraphQL Definitions
 const GET_PAYROLL_PAGE = gql`
   query GetPayrollPage($month: String!) {
-    personnelStatus {
-      user {
-        id
-        username
-        departement
-        base_salary
-        photo
-        is_blocked
-        nbmonth
-      }
+    getUsers {
+      id
+      username
+      departement
+      base_salary
+      photo
+      is_blocked
+      nbmonth
     }
     getPayroll(month: $month) {
       id
@@ -96,6 +94,22 @@ const ADD_EXTRA = gql`
     addExtra(user_id: $user_id, montant: $montant, date_extra: $date_extra, motif: $motif) {
       id
     }
+  }
+`
+
+const UPDATE_EXTRA = gql`
+  mutation UpdateExtra($id: ID!, $montant: Float, $motif: String) {
+    updateExtra(id: $id, montant: $montant, motif: $motif) {
+      id
+      montant
+      motif
+    }
+  }
+`
+
+const DELETE_EXTRA = gql`
+  mutation DeleteExtra($id: ID!) {
+    deleteExtra(id: $id)
   }
 `
 
@@ -211,32 +225,49 @@ export default function PayrollPage() {
   // Init payroll if empty result?
   // Warning: If we init automatically, we might overwrite?
   // Usually initPayroll checks if exists. 
-  // Let's assume the backend handles safety or we only call if completely empty.
   useEffect(() => {
-    if (data?.getPayroll && data.getPayroll.length === 0 && !loading && data?.personnelStatus?.length > 0) {
+    if (data?.getPayroll && data.getPayroll.length === 0 && !loading && data?.getUsers?.length > 0) {
       // Only init if we have users but no payroll
       initPayroll({ variables: { month: payrollMonthKey } }).then(() => refetch().catch(console.error)).catch(console.error)
     }
   }, [data, loading, payrollMonthKey, initPayroll, refetch])
 
   const users = useMemo(() => {
-    if (!data?.personnelStatus) return [];
-    return data.personnelStatus
-      .map((p: any) => p.user)
-      .filter((u: any) => !u.is_blocked);
+    if (!data?.getUsers) return [];
+    return data.getUsers.filter((u: any) => !u.is_blocked);
   }, [data]);
   const payrollRecords = useMemo(() => data?.getPayroll || [], [data]);
   const schedules = useMemo(() => data?.getAllSchedules || [], [data]);
   const extrasList = useMemo(() => data?.getExtras || [], [data]);
 
+  const usersMap = useMemo(() => {
+    const map = new Map<string, any>();
+    users.forEach((u: any) => map.set(String(u.id), u));
+    return map;
+  }, [users]);
+
   const payrollSummary = useMemo(() => {
+    // Pre-group records by user_id
+    const recordsByUser = new Map<string, any[]>();
+    payrollRecords.forEach((r: any) => {
+      const uid = String(r.user_id);
+      if (!recordsByUser.has(uid)) recordsByUser.set(uid, []);
+      recordsByUser.get(uid)!.push(r);
+    });
+
+    const scheduleByUser = new Map<string, any>();
+    schedules.forEach((s: any) => {
+      scheduleByUser.set(String(s.user_id), s);
+    });
+
     return users.map((user: any) => {
-      const userRecords = payrollRecords.filter((r: any) => String(r.user_id) === String(user.id));
-      const userSchedule = schedules.find((s: any) => String(s.user_id) === String(user.id));
+      const uId = String(user.id);
+      const userRecords = recordsByUser.get(uId) || [];
+      const userSchedule = scheduleByUser.get(uId);
 
       const stats = calculateUserStats(user, userRecords, userSchedule, selectedMonth);
 
-      // Check if user is paid (check if any record has paid = true)
+      // Check if user is paid
       const isPaid = userRecords.some((r: any) => r.paid === true);
 
       return {
@@ -248,6 +279,14 @@ export default function PayrollPage() {
       }
     })
   }, [users, payrollRecords, schedules, selectedMonth]);
+
+  const paidUsersSet = useMemo(() => {
+    const set = new Set<string>();
+    payrollSummary.forEach((p: any) => {
+      if (p.isPaid) set.add(String(p.userId));
+    });
+    return set;
+  }, [payrollSummary]);
 
 
 
@@ -339,6 +378,13 @@ export default function PayrollPage() {
   const [addDoublage, { loading: addingDoublage }] = useMutation(ADD_DOUBLAGE)
   const [payUser, { loading: payingUser }] = useMutation(PAY_USER)
   const [unpayUser, { loading: unpayingUser }] = useMutation(UNPAY_USER)
+  const [updateExtra] = useMutation(UPDATE_EXTRA)
+  const [deleteExtra] = useMutation(DELETE_EXTRA)
+
+  const [editingExtraId, setEditingExtraId] = useState<string | null>(null)
+  const [editExtraAmount, setEditExtraAmount] = useState("")
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
 
   const handleAddExtra = async () => {
     if (!extraUserId || !extraAmount || !extraDate) return
@@ -352,11 +398,11 @@ export default function PayrollPage() {
           motif: "Extra"
         }
       })
-      await refetch()
       setExtraDialogOpen(false)
       setExtraUserId("")
       setExtraAmount("")
       setExtraDate(new Date())
+      await refetch()
     } catch (error) {
       console.error("Error adding extra:", error)
     }
@@ -373,11 +419,11 @@ export default function PayrollPage() {
           date: format(doublageDate, 'yyyy-MM-dd')
         }
       })
-      await refetch()
       setDoublageDialogOpen(false)
       setDoublageUserId("")
       setDoublageAmount("")
       setDoublageDate(new Date())
+      await refetch()
     } catch (error) {
       console.error("Error adding doublage:", error)
     }
@@ -395,13 +441,44 @@ export default function PayrollPage() {
           motif: "prime"
         }
       })
-      await refetch()
       setPrimeDialogOpen(false)
       setPrimeUserId("")
       setPrimeAmount("")
       setPrimeDate(new Date())
+      await refetch()
     } catch (error) {
       console.error("Error adding prime:", error)
+    }
+  }
+
+  const handleUpdateExtra = async (id: string) => {
+    if (!editExtraAmount) return
+    try {
+      await updateExtra({
+        variables: {
+          id,
+          montant: parseFloat(editExtraAmount)
+        }
+      })
+      await refetch()
+      setEditingExtraId(null)
+      setEditExtraAmount("")
+    } catch (error) {
+      console.error("Error updating extra:", error)
+    }
+  }
+
+  const handleDeleteExtra = async () => {
+    if (!deleteTargetId) return
+    try {
+      await deleteExtra({
+        variables: { id: deleteTargetId }
+      })
+      await refetch()
+      setDeleteConfirmOpen(false)
+      setDeleteTargetId(null)
+    } catch (error) {
+      console.error("Error deleting extra:", error)
     }
   }
 
@@ -597,7 +674,7 @@ export default function PayrollPage() {
                       <div className="flex items-center gap-4 bg-[#f8f6f1] p-3 rounded-2xl border border-[#c9b896]/30">
                         <div className="h-12 w-12 rounded-xl bg-[#8b5a2b] flex items-center justify-center text-white font-black overflow-hidden shadow-md">
                           {(() => {
-                            const user = users.find((u: any) => u.id === primeUserId);
+                            const user = usersMap.get(String(primeUserId));
                             return user?.photo ? <img src={user.photo} className="h-full w-full object-cover" /> : user?.username?.charAt(0) || "?";
                           })()}
                         </div>
@@ -608,8 +685,7 @@ export default function PayrollPage() {
                           <SelectContent className="bg-white border-[#c9b896]">
                             {users
                               .filter((u: any) => {
-                                const summary = payrollSummary.find((p: any) => p.userId === u.id);
-                                const isPaid = summary?.isPaid;
+                                const isPaid = paidUsersSet.has(String(u.id));
                                 const matchesSearch = u.username.toLowerCase().includes(primeSearchTerm.toLowerCase())
                                 const matchesDep = primeSelectedDepartment === "all" || u.departement === primeSelectedDepartment
                                 return matchesSearch && matchesDep && !isPaid
@@ -692,7 +768,7 @@ export default function PayrollPage() {
                       <div className="flex items-center gap-4 bg-[#f8f6f1] p-3 rounded-2xl border border-[#c9b896]/30">
                         <div className="h-12 w-12 rounded-xl bg-[#8b5a2b] flex items-center justify-center text-white font-black overflow-hidden shadow-md">
                           {(() => {
-                            const user = users.find((u: any) => u.id === extraUserId);
+                            const user = usersMap.get(String(extraUserId));
                             return user?.photo ? <img src={user.photo} className="h-full w-full object-cover" /> : user?.username?.charAt(0) || "?";
                           })()}
                         </div>
@@ -703,8 +779,7 @@ export default function PayrollPage() {
                           <SelectContent className="bg-white border-[#c9b896]">
                             {users
                               .filter((u: any) => {
-                                const summary = payrollSummary.find((p: any) => p.userId === u.id);
-                                const isPaid = summary?.isPaid;
+                                const isPaid = paidUsersSet.has(String(u.id));
                                 const matchesSearch = u.username.toLowerCase().includes(extraSearchTerm.toLowerCase())
                                 const matchesDep = extraSelectedDepartment === "all" || u.departement === extraSelectedDepartment
                                 return matchesSearch && matchesDep && !isPaid
@@ -788,7 +863,7 @@ export default function PayrollPage() {
                       <div className="flex items-center gap-4 bg-[#f8f6f1] p-3 rounded-2xl border border-[#c9b896]/30">
                         <div className="h-12 w-12 rounded-xl bg-[#8b5a2b] flex items-center justify-center text-white font-black overflow-hidden shadow-md">
                           {(() => {
-                            const user = users.find((u: any) => u.id === doublageUserId);
+                            const user = usersMap.get(String(doublageUserId));
                             return user?.photo ? <img src={user.photo} className="h-full w-full object-cover" /> : user?.username?.charAt(0) || "?";
                           })()}
                         </div>
@@ -799,8 +874,7 @@ export default function PayrollPage() {
                           <SelectContent className="bg-white border-[#c9b896]">
                             {users
                               .filter((u: any) => {
-                                const summary = payrollSummary.find((p: any) => p.userId === u.id);
-                                const isPaid = summary?.isPaid;
+                                const isPaid = paidUsersSet.has(String(u.id));
                                 const matchesSearch = u.username.toLowerCase().includes(doublageSearchTerm.toLowerCase())
                                 const matchesDep = doublageSelectedDepartment === "all" || u.departement === doublageSelectedDepartment
                                 return matchesSearch && matchesDep && !isPaid
@@ -841,12 +915,6 @@ export default function PayrollPage() {
                     </div>
                   </DialogContent>
                 </Dialog>
-              )}
-              {canSee('payroll', 'action_rapport') && (
-                <Button onClick={() => window.print()} className="bg-gradient-to-r from-[#8b5a2b] to-[#a0522d] text-white hover:opacity-90 shadow-md h-10 sm:h-11 lg:h-12 px-4 sm:px-5 lg:px-6 text-sm sm:text-base">
-                  <FileText className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                  <span className="hidden sm:inline">Rapport</span>
-                </Button>
               )}
             </div>
           </div>
@@ -944,6 +1012,20 @@ export default function PayrollPage() {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-9 border-[#c9b896] bg-[#f8f6f1] text-[#3d2c1e]"
               />
+            </div>
+            <div className="flex gap-4">
+              <Button
+                onClick={() => setViewPrimesOpen(true)}
+                className="bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-200 shadow-sm font-bold"
+              >
+                Liste Primes
+              </Button>
+              <Button
+                onClick={() => setViewExtrasOpen(true)}
+                className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border border-emerald-200 shadow-sm font-bold"
+              >
+                Liste Extras
+              </Button>
             </div>
             <div className="w-full sm:w-56">
               <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
@@ -1245,10 +1327,10 @@ export default function PayrollPage() {
                   <div
                     key={idx}
                     className={`
-                      aspect-square rounded-md sm:rounded-lg flex flex-col items-center justify-center p-0.5 sm:p-1 lg:p-2 relative
+    aspect-square rounded-md sm:rounded-lg flex flex-col items-center justify-center p-0.5 sm:p-1 lg:p-2 relative
                       ${cell === null ? "bg-transparent" : cell.isWeekend ? "bg-blue-50" : "bg-white"}
                       ${cell !== null ? "border border-[#c9b896]/50" : ""}
-                    `}
+    `}
                   >
                     {cell && (
                       <>
@@ -1256,14 +1338,14 @@ export default function PayrollPage() {
                         <div className="mt-0.5 sm:mt-1">
                           <div
                             className={`
-                              px-1 sm:px-1.5 lg:px-2 py-0.5 rounded text-[8px] sm:text-[10px] lg:text-xs font-medium
+    px-1 sm:px-1.5 lg:px-2 py-0.5 rounded text-[8px] sm:text-[10px] lg:text-xs font-medium
                               ${cell.type === "shift"
                                 ? "bg-cyan-100 text-cyan-700 border border-cyan-200"
                                 : cell.type === "doublage"
                                   ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
                                   : "bg-gray-100 text-gray-700 border border-gray-200"
                               }
-                            `}
+    `}
                           >
                             <span className="hidden sm:inline">
                               {cell.shiftName ? cell.shiftName.substring(0, 3).toUpperCase() : "REP"}
@@ -1530,72 +1612,87 @@ export default function PayrollPage() {
             const rawExtras = data?.getExtras || [];
             const extrasListFiltered = rawExtras.filter((e: any) => (e.motif || "Extra").toLowerCase() === "extra");
 
-            // Aggregate and Filter
-            const userMap = new Map();
             let localTotal = 0;
-
-            extrasListFiltered.forEach((e: any) => {
-              const user = users.find((u: any) => u.id === e.user_id);
+            const filteredExtras = extrasListFiltered.filter((e: any) => {
+              const user = usersMap.get(String(e.user_id));
               const userDep = user?.departement || "Autre";
-
-              if (viewExtrasSelectedDepartment !== "all" && userDep !== viewExtrasSelectedDepartment) {
-                return;
-              }
-
-              if (!userMap.has(e.user_id)) {
-                userMap.set(e.user_id, {
-                  id: e.user_id,
-                  username: user?.username || 'Inconnu',
-                  total: 0,
-                  dates: [],
-                  photo: user?.photo
-                });
-              }
-              const userEntry = userMap.get(e.user_id);
-              userEntry.total += e.montant;
-              userEntry.dates.push(e.date_extra);
-              localTotal += e.montant;
+              const matches = viewExtrasSelectedDepartment === "all" || userDep === viewExtrasSelectedDepartment;
+              if (matches) localTotal += e.montant;
+              return matches;
             });
-
-            const filteredUsers = Array.from(userMap.values());
 
             return (
               <>
                 <div className="mt-4 space-y-3 max-h-[400px] overflow-y-auto pr-2">
-                  {filteredUsers.length === 0 ? (
+                  {filteredExtras.length === 0 ? (
                     <div className="text-center py-8 text-[#6b5744]">Aucun extra trouvé</div>
                   ) : (
-                    filteredUsers.map((entry: any) => (
-                      <div key={entry.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
-                              {entry.photo ? (
-                                <img src={entry.photo} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
-                                  {entry.username?.charAt(0)}
+                    filteredExtras.map((record: any) => {
+                      const user = usersMap.get(String(record.user_id));
+                      return (
+                        <div key={record.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
+                                {user?.photo ? (
+                                  <img src={user.photo} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
+                                    {user?.username?.charAt(0) || "?"}
+                                  </div>
+                                )}
+                              </div>
+                              <div>
+                                <p className="font-bold text-[#3d2c1e] text-sm">{user?.username || "Inconnu"}</p>
+                                <p className="text-[10px] text-[#6b5744]">{format(new Date(record.date_extra), 'dd MMM yyyy', { locale: fr })}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {editingExtraId === record.id ? (
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    value={editExtraAmount}
+                                    onChange={(e) => setEditExtraAmount(e.target.value)}
+                                    className="h-8 w-20 text-xs"
+                                  />
+                                  <Button size="sm" onClick={() => handleUpdateExtra(record.id)} className="h-8 bg-black text-white px-2">OK</Button>
+                                  <Button size="sm" variant="ghost" onClick={() => setEditingExtraId(null)} className="h-8 px-2">X</Button>
                                 </div>
+                              ) : (
+                                <>
+                                  <div className="text-emerald-600 font-black text-sm mr-2">
+                                    {record.montant.toLocaleString()} DT
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setEditingExtraId(record.id);
+                                      setEditExtraAmount(record.montant.toString());
+                                    }}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <RotateCcw className="h-4 w-4 text-blue-600" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setDeleteTargetId(record.id);
+                                      setDeleteConfirmOpen(true);
+                                    }}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <XCircle className="h-4 w-4 text-red-600" />
+                                  </Button>
+                                </>
                               )}
                             </div>
-                            <div>
-                              <p className="font-bold text-[#3d2c1e] text-sm">{entry.username}</p>
-                            </div>
-                          </div>
-                          <div className="text-emerald-600 font-black text-sm">
-                            {entry.total.toLocaleString()} DT
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[#c9b896]/10">
-                          <span className="text-[9px] font-black uppercase text-[#6b5744]/50 w-full mb-1">Dates:</span>
-                          {entry.dates.map((d: string, i: number) => (
-                            <span key={i} className="px-2 py-0.5 rounded-full bg-white border border-[#c9b896]/30 text-[10px] font-bold text-[#3d2c1e] shadow-sm">
-                              {format(new Date(d), 'dd MMM yyyy', { locale: fr })}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    ))
+                      )
+                    })
                   )}
                 </div>
 
@@ -1633,74 +1730,90 @@ export default function PayrollPage() {
           </DialogHeader>
 
           {(() => {
-            const primesList: any[] = [];
+            const rawExtras = data?.getExtras || [];
+            const primesListFiltered = rawExtras.filter((e: any) => (e.motif || "").toLowerCase() === "prime");
+
             let localTotal = 0;
-
-            payrollRecords.forEach((record: any) => {
-              if (record.prime > 0) {
-                const user = users.find((u: any) => u.id === record.user_id);
-                const userDep = user?.departement || "Autre";
-
-                if (viewPrimesSelectedDepartment !== "all" && userDep !== viewPrimesSelectedDepartment) {
-                  return;
-                }
-
-                const existingUser = primesList.find((p: any) => p.user_id === record.user_id);
-                if (existingUser) {
-                  existingUser.total += record.prime;
-                  if (!existingUser.dates.includes(record.date)) {
-                    existingUser.dates.push(record.date);
-                  }
-                } else if (user) {
-                  primesList.push({
-                    user_id: record.user_id,
-                    username: user.username,
-                    total: record.prime,
-                    dates: [record.date],
-                    photo: user.photo
-                  });
-                }
-                localTotal += record.prime;
-              }
+            const filteredPrimes = primesListFiltered.filter((e: any) => {
+              const user = usersMap.get(String(e.user_id));
+              const userDep = user?.departement || "Autre";
+              const matches = viewPrimesSelectedDepartment === "all" || userDep === viewPrimesSelectedDepartment;
+              if (matches) localTotal += e.montant;
+              return matches;
             });
 
             return (
               <>
                 <div className="mt-4 space-y-3 max-h-[400px] overflow-y-auto pr-2">
-                  {primesList.length === 0 ? (
+                  {filteredPrimes.length === 0 ? (
                     <div className="text-center py-8 text-[#6b5744]">Aucune prime trouvée</div>
                   ) : (
-                    primesList.map((entry: any) => (
-                      <div key={entry.user_id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
-                              {entry.photo ? (
-                                <img src={entry.photo} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
-                                  {entry.username?.charAt(0)}
+                    filteredPrimes.map((record: any) => {
+                      const user = usersMap.get(String(record.user_id));
+                      return (
+                        <div key={record.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
+                                {user?.photo ? (
+                                  <img src={user.photo} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
+                                    {user?.username?.charAt(0) || "?"}
+                                  </div>
+                                )}
+                              </div>
+                              <div>
+                                <p className="font-bold text-[#3d2c1e] text-sm">{user?.username || "Inconnu"}</p>
+                                <p className="text-[10px] text-[#6b5744]">{format(new Date(record.date_extra), 'dd MMM yyyy', { locale: fr })}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {editingExtraId === record.id ? (
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    value={editExtraAmount}
+                                    onChange={(e) => setEditExtraAmount(e.target.value)}
+                                    className="h-8 w-20 text-xs"
+                                  />
+                                  <Button size="sm" onClick={() => handleUpdateExtra(record.id)} className="h-8 bg-black text-white px-2">OK</Button>
+                                  <Button size="sm" variant="ghost" onClick={() => setEditingExtraId(null)} className="h-8 px-2">X</Button>
                                 </div>
+                              ) : (
+                                <>
+                                  <div className="text-amber-600 font-black text-sm mr-2">
+                                    {record.montant.toLocaleString()} DT
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setEditingExtraId(record.id);
+                                      setEditExtraAmount(record.montant.toString());
+                                    }}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <RotateCcw className="h-4 w-4 text-blue-600" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setDeleteTargetId(record.id);
+                                      setDeleteConfirmOpen(true);
+                                    }}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <XCircle className="h-4 w-4 text-red-600" />
+                                  </Button>
+                                </>
                               )}
                             </div>
-                            <div>
-                              <p className="font-bold text-[#3d2c1e] text-sm">{entry.username}</p>
-                            </div>
-                          </div>
-                          <div className="text-amber-600 font-black text-sm">
-                            {entry.total.toLocaleString()} DT
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[#c9b896]/10">
-                          <span className="text-[9px] font-black uppercase text-[#6b5744]/50 w-full mb-1">Dates:</span>
-                          {entry.dates.sort().map((d: string, i: number) => (
-                            <span key={i} className="px-2 py-0.5 rounded-full bg-white border border-[#c9b896]/30 text-[10px] font-bold text-[#3d2c1e] shadow-sm">
-                              {format(new Date(d), 'dd MMM yyyy', { locale: fr })}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    ))
+                      )
+                    })
                   )}
                 </div>
 
@@ -1744,7 +1857,7 @@ export default function PayrollPage() {
               return isPaid && matchesDep;
             });
 
-            const currentTotal = filteredPaidUsers.reduce((acc, curr) => acc + curr.netSalary, 0);
+            const currentTotal = filteredPaidUsers.reduce((acc: number, curr: any) => acc + curr.netSalary, 0);
 
             return (
               <>
@@ -1791,6 +1904,31 @@ export default function PayrollPage() {
           })()}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation for Extras/Primes */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent className="bg-white border-[#c9b896] rounded-2xl shadow-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-[#8b5a2b] font-bold text-xl flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-red-600" /> Supprimer cet élément ?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-[#6b5744] text-base">
+              Cette action est irréversible. Le montant sera retiré de la fiche de paie de l'employé.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-4 gap-2">
+            <AlertDialogCancel className="rounded-xl border-[#c9b896] text-[#3d2c1e] hover:bg-gray-50 uppercase text-xs font-black tracking-widest">
+              Annuler
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteExtra}
+              className="rounded-xl bg-red-600 hover:bg-red-700 text-white uppercase text-xs font-black tracking-widest px-6"
+            >
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

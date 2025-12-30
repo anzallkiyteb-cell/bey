@@ -3,11 +3,11 @@ import { Pool } from 'pg';
 // Avoid creating multiple pools in development due to hot reloading
 const pool = (global as any).pgPool || new Pool({
     connectionString: process.env.DATABASE_URL,
-    max: 5, // Reduced from 20 to avoid "too many clients" error
-    min: 1, // Keep at least 1 connection alive
-    idleTimeoutMillis: 10000, // Release idle connections faster
-    connectionTimeoutMillis: 5000, // Fast timeout
-    statement_timeout: 10000, // 10 second query timeout
+    max: 30, // Increased for high concurrency
+    min: 5,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+    statement_timeout: 60000,
 });
 
 if (process.env.NODE_ENV !== 'production') {

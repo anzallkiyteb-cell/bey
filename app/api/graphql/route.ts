@@ -178,6 +178,8 @@ const typeDefs = `#graphql
     totalHours: Float
     daysWorked: Int
     avgHoursPerDay: Float
+    totalRetard: Int
+    onTimeDays: Int
   }
 
   input PayrollInput {
@@ -199,6 +201,7 @@ const typeDefs = `#graphql
     userAttendanceHistory(userId: ID!, startDate: String!, endDate: String!): [AttendanceRecord]
     getUserSchedule(userId: ID!): UserSchedule
     getAllSchedules: [UserSchedule]
+    getUsers: [User]
     getAdvances(filter: String, month: String): [Advance]
     getRetards(date: String, startDate: String, endDate: String): [Retard]
     getAbsents(date: String, startDate: String, endDate: String): [Absent]
@@ -549,7 +552,22 @@ const ensureStaticIndexes = async () => {
       `CREATE INDEX IF NOT EXISTS idx_absents_user_id_date ON public.absents(user_id, date)`,
       `CREATE INDEX IF NOT EXISTS idx_extras_user_id_date ON public.extras(user_id, date_extra)`,
       `CREATE INDEX IF NOT EXISTS idx_doublages_user_id_date ON public.doublages(user_id, date)`,
-      `CREATE INDEX IF NOT EXISTS idx_avances_statut ON public.avances(statut)`,
+      `CREATE INDEX IF NOT EXISTS idx_avances_date ON public.avances(date)`,
+      `CREATE INDEX IF NOT EXISTS idx_retards_date ON public.retards(date)`,
+      `CREATE INDEX IF NOT EXISTS idx_absents_date ON public.absents(date)`,
+      `CREATE INDEX IF NOT EXISTS idx_extras_date_extra ON public.extras(date_extra)`,
+      `CREATE INDEX IF NOT EXISTS idx_doublages_date ON public.doublages(date)`,
+      `ALTER TABLE public.extras ADD COLUMN IF NOT EXISTS motif TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_extras_motif ON public.extras(motif)`,
+      `CREATE TABLE IF NOT EXISTS public.doublages(
+        id SERIAL PRIMARY KEY,
+        user_id INT,
+        username VARCHAR(100),
+        montant FLOAT,
+        date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_doublages_user_id_date ON public.doublages(user_id, date)`,
+      `CREATE INDEX IF NOT EXISTS idx_doublages_date ON public.doublages(date)`
     ];
     await Promise.all(queries.map(q => pool.query(q)));
   } catch (e) { console.error("Index creation error:", e); }
@@ -584,10 +602,14 @@ const fetchDayPunches = async (logicalDate: Date, userId: string | null = null) 
       try { await ensureTableIndexes(table1); } catch (e) { console.error(`Index creation failed for ${table1}`, e); }
 
       try {
-        let q1 = `SELECT device_time, user_id FROM public."${table1}" WHERE device_time >= '${startStr}'`;
-        if (userId) q1 += ` AND user_id = ${userId} `;
+        let q1 = `SELECT device_time, user_id FROM public."${table1}" WHERE device_time >= $1 AND device_time < $2`;
+        const params1 = [startStr, endStr];
+        if (userId) {
+          q1 += ` AND user_id = $3`;
+          params1.push(userId);
+        }
         q1 += ` ORDER BY device_time ASC`;
-        return await pool.query(q1);
+        return await pool.query(q1, params1);
       } catch (e: any) {
         // Suppress "relation does not exist" error as it's expected for future/missing tables
         if (!e.message.includes('does not exist')) {
@@ -601,10 +623,14 @@ const fetchDayPunches = async (logicalDate: Date, userId: string | null = null) 
       try { await ensureTableIndexes(table2); } catch (e) { /* ignore */ }
 
       try {
-        let q2 = `SELECT device_time, user_id FROM public."${table2}" WHERE device_time < '${endStr}'`;
-        if (userId) q2 += ` AND user_id = ${userId} `;
+        let q2 = `SELECT device_time, user_id FROM public."${table2}" WHERE device_time >= $1 AND device_time < $2`;
+        const params2 = [startStr, endStr];
+        if (userId) {
+          q2 += ` AND user_id = $3`;
+          params2.push(userId);
+        }
         q2 += ` ORDER BY device_time ASC`;
-        return await pool.query(q2);
+        return await pool.query(q2, params2);
       } catch (e: any) {
         // Suppress "relation does not exist" error
         if (!e.message.includes('does not exist')) {
@@ -642,22 +668,29 @@ const initializedMonths = new Set();
 const inProgressInitializations = new Map();
 
 async function initializePayrollTable(month: string) {
+  if (initializedMonths.has(month)) return true;
+  if (inProgressInitializations.has(month)) return inProgressInitializations.get(month);
+
   const tableName = `paiecurrent_${month}`;
 
   // Fast path: Check existence and run migrations if table exists
   try {
-    const check = await pool.query(`SELECT count(*) FROM public."${tableName}"`);
-    if (parseInt(check.rows[0].count) > 0) {
-      // Table exists, ensure it has the latest columns
+    const check = await pool.query(`SELECT 1 FROM public."${tableName}" LIMIT 1`);
+    if (check.rowCount >= 0) {
+      // Table exists, ensure it has the latest columns in a single batch
       try {
-        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS retard INT DEFAULT 0`);
-        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS prime FLOAT DEFAULT 0`);
-        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS infraction FLOAT DEFAULT 0`);
-        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS doublage FLOAT DEFAULT 0`);
-        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS mise_a_pied FLOAT DEFAULT 0`);
-        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_in VARCHAR(50)`);
-        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS clock_out VARCHAR(50)`);
-        await pool.query(`ALTER TABLE public."${tableName}" ADD COLUMN IF NOT EXISTS updated BOOLEAN DEFAULT FALSE`);
+        await pool.query(`
+          ALTER TABLE public."${tableName}" 
+          ADD COLUMN IF NOT EXISTS retard INT DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS prime FLOAT DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS infraction FLOAT DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS doublage FLOAT DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS mise_a_pied FLOAT DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS clock_in VARCHAR(50),
+          ADD COLUMN IF NOT EXISTS clock_out VARCHAR(50),
+          ADD COLUMN IF NOT EXISTS updated BOOLEAN DEFAULT FALSE
+        `);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_${tableName}_user_date ON public."${tableName}"(user_id, date)`);
       } catch (migrationError) {
         console.error("Migration error:", migrationError);
       }
@@ -667,9 +700,6 @@ async function initializePayrollTable(month: string) {
   } catch (e) {
     // Table likely doesn't exist, proceed to safe initialization
   }
-
-  if (initializedMonths.has(month)) return true;
-  if (inProgressInitializations.has(month)) return inProgressInitializations.get(month);
 
   const initPromise = (async () => {
     const tableName = `paiecurrent_${month}`;
@@ -788,29 +818,25 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
   const dayCols = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
   const dayCol = dayCols[dayOfWeekIndex];
 
-  let usersQ = 'SELECT id, username, "département" as departement FROM public.users';
-  let usersP = [];
-  if (specificUserId) {
-    usersQ = 'SELECT id, username, "département" as departement FROM public.users WHERE id = $1';
-    usersP.push(specificUserId);
-  }
-  const usersRes = await pool.query(usersQ, usersP);
+  // Fetch all data in parallel to minimize round-trip latency
+  const nextDateSQL = formatDateLocal(new Date(logicalDay.getTime() + 86400000));
+  const userClause = specificUserId ? ' AND user_id = $3 ' : '';
+  const subParams = specificUserId ? [dateSQL, nextDateSQL, specificUserId] : [dateSQL, nextDateSQL];
+
+  const [usersRes, schedulesRes, allPunches, retardsRes, absentsRes, advancesRes, extrasRes, doublagesRes, notificationsRes] = await Promise.all([
+    pool.query(specificUserId ? 'SELECT id, username, "département" as departement FROM public.users WHERE id = $1' : 'SELECT id, username, "département" as departement FROM public.users', specificUserId ? [specificUserId] : []),
+    pool.query(specificUserId ? 'SELECT * FROM public.user_schedules WHERE user_id = $1' : 'SELECT * FROM public.user_schedules', specificUserId ? [specificUserId] : []),
+    fetchDayPunches(logicalDay, specificUserId),
+    pool.query(`SELECT * FROM public.retards WHERE date >= $1 AND date < $2 ${userClause}`, subParams),
+    pool.query(`SELECT * FROM public.absents WHERE date >= $1 AND date < $2 ${userClause}`, subParams),
+    pool.query(`SELECT user_id, SUM(montant) as total FROM public.avances WHERE date >= $1 AND date < $2 AND (statut = 'Payé' OR statut = 'Validé' OR statut = 'En attente') ${userClause} GROUP BY user_id`, subParams),
+    pool.query(`SELECT * FROM public.extras WHERE date_extra >= $1 AND date_extra < $2 ${userClause}`, subParams),
+    pool.query(`SELECT user_id, SUM(montant) as total FROM public.doublages WHERE date >= $1 AND date < $2 ${userClause} GROUP BY user_id`, subParams),
+    pool.query("SELECT message FROM public.notifications WHERE timestamp >= $1 AND timestamp < $2", [dateSQL, nextDateSQL])
+  ]);
+
   const users = usersRes.rows;
-
-  const schedulesRes = await pool.query('SELECT * FROM public.user_schedules');
   const schedules = schedulesRes.rows;
-
-  const allPunches = await fetchDayPunches(logicalDay);
-
-  // Bulk fetch all data for this date to avoid N+1 queries
-  const retardsRes = await pool.query('SELECT * FROM public.retards WHERE date::date = $1::date', [dateSQL]);
-  const absentsRes = await pool.query('SELECT * FROM public.absents WHERE date::date = $1::date', [dateSQL]);
-  const advancesRes = await pool.query(`SELECT user_id, SUM(montant) as total FROM public.avances WHERE date::date = $1::date AND (statut = 'Payé' OR statut = 'Validé' OR statut = 'En attente') GROUP BY user_id`, [dateSQL]);
-  const extrasRes = await pool.query(`SELECT * FROM public.extras WHERE date_extra::date = $1::date`, [dateSQL]);
-  const doublagesRes = await pool.query(`SELECT user_id, SUM(montant) as total FROM public.doublages WHERE date::date = $1::date GROUP BY user_id`, [dateSQL]);
-
-  // Notification check optimization
-  const notificationsRes = await pool.query("SELECT message FROM public.notifications WHERE timestamp::date = $1::date", [dateSQL]);
   const notificationMessages = new Set<string>(notificationsRes.rows.map((n: any) => String(n.message)));
 
   const retardsMap = new Map<number, any>();
@@ -845,6 +871,13 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
   });
 
   const payrollTableName = `paiecurrent_${monthKey}`;
+
+  // Pre-fetch 'updated' flags for all relevant users in one go
+  const updatedFlagsQ = `SELECT user_id, updated FROM public."${payrollTableName}" WHERE date = $1 ${specificUserId ? ' AND user_id = $2 ' : ''}`;
+  const updatedFlagsP = specificUserId ? [dateSQL, specificUserId] : [dateSQL];
+  const updatedFlagsRes = await pool.query(updatedFlagsQ, updatedFlagsP);
+  const updatedFlagsMap = new Map<number, boolean>();
+  updatedFlagsRes.rows.forEach((r: any) => updatedFlagsMap.set(Number(r.user_id), !!r.updated));
 
   // Process all users in parallel to minimize round-trip latency
   await Promise.all(users.map(async (user: any) => {
@@ -996,39 +1029,40 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       }
     }
 
-    // Check if this record has been manually updated
-    const checkUpdated = await pool.query(
-      `SELECT updated FROM public.\"${payrollTableName}\" WHERE user_id = $1 AND date = $2`,
-      [user.id, dateSQL]
-    );
-    const isManuallyUpdated = checkUpdated.rows.length > 0 && checkUpdated.rows[0].updated === true;
+    const isManuallyUpdated = updatedFlagsMap.get(userIdNum) === true;
 
     // Determine state and reasons...
     // Only update tables if NOT manually updated
     if (!isManuallyUpdated) {
       if (shiftType !== "Repos") {
         if (isAbsent) {
-          await pool.query(`
+          await Promise.all([
+            pool.query(`
               INSERT INTO public.absents(user_id, username, date, type, reason) 
               VALUES($1, $2, $3, $4, $5)
               ON CONFLICT (user_id, date) DO UPDATE SET
               type = EXCLUDED.type,
               reason = EXCLUDED.reason
-            `, [user.id, user.username, dateSQL, "Absence", reason]);
-          await pool.query('DELETE FROM public.retards WHERE user_id = $1 AND date::date = $2::date', [user.id, dateSQL]);
+            `, [user.id, user.username, dateSQL, "Absence", reason]),
+            pool.query('DELETE FROM public.retards WHERE date >= $1 AND date < $2 AND user_id = $3', [dateSQL, nextDateSQL, user.id])
+          ]);
         } else if (isRetard) {
           const punchTime = userPunches[0].device_time;
-          await pool.query(`
-            INSERT INTO public.retards(user_id, username, date, reason) 
-            VALUES($1, $2, $3, $4)
-            ON CONFLICT (user_id, (date::date)) DO UPDATE SET
-            date = EXCLUDED.date,
-            reason = EXCLUDED.reason
-          `, [user.id, user.username, punchTime, reason]);
-          await pool.query("DELETE FROM public.absents WHERE user_id = $1 AND date = $2 AND (type = 'Absence' OR type = 'Injustifié')", [user.id, dateSQL]);
+          await Promise.all([
+            pool.query(`
+              INSERT INTO public.retards(user_id, username, date, reason) 
+              VALUES($1, $2, $3, $4)
+              ON CONFLICT (user_id, (date::date)) DO UPDATE SET
+              date = EXCLUDED.date,
+              reason = EXCLUDED.reason
+            `, [user.id, user.username, punchTime, reason]),
+            pool.query("DELETE FROM public.absents WHERE user_id = $1 AND date = $2 AND (type = 'Absence' OR type = 'Injustifié')", [user.id, dateSQL])
+          ]);
         } else {
-          await pool.query("DELETE FROM public.absents WHERE user_id = $1 AND date = $2 AND (type = 'Absence' OR type = 'Injustifié')", [user.id, dateSQL]);
-          await pool.query('DELETE FROM public.retards WHERE user_id = $1 AND date::date = $2::date', [user.id, dateSQL]);
+          await Promise.all([
+            pool.query("DELETE FROM public.absents WHERE user_id = $1 AND date = $2 AND (type = 'Absence' OR type = 'Injustifié')", [user.id, dateSQL]),
+            pool.query('DELETE FROM public.retards WHERE date >= $1 AND date < $2 AND user_id = $3', [dateSQL, nextDateSQL, user.id])
+          ]);
         }
       }
     }
@@ -1190,6 +1224,13 @@ const resolvers = {
       const res = await pool.query('SELECT * FROM public.user_schedules WHERE user_id = $1', [userId]);
       if (res.rows.length === 0) return null;
       return res.rows[0];
+    },
+    getUsers: async () => {
+      const res = await pool.query('SELECT id, username, role, status, zktime_id, "département" as departement, email, phone, cin, base_salary, photo, is_blocked, permissions, nbmonth FROM public.users ORDER BY id ASC');
+      return res.rows.map((u: any) => ({
+        ...u,
+        base_salary: parseFloat(u.base_salary || 0)
+      }));
     },
     getAllSchedules: async () => {
       const res = await pool.query(`
@@ -1373,13 +1414,12 @@ const resolvers = {
           }
           return {
             ...r,
-            url,
-            user_id: r.user_id,
-            timestamp: r.timestamp.toISOString()
+            timestamp: formatDateTimeLocal(r.timestamp),
+            url
           };
         });
       } catch (e) {
-        console.error("Fetch Notif Error:", e);
+        console.error("Error fetching notifications:", e);
         return [];
       }
     },
@@ -1391,11 +1431,11 @@ const resolvers = {
         q += ' WHERE date_extra::date >= $1::date AND date_extra::date <= $2::date';
         params.push(startDate, endDate);
       } else if (month) {
-        // month is usually "YYYY_MM"
         const [year, monthNum] = month.split('_');
-        const monthDateFilter = `${year}-${monthNum}`;
-        q += " WHERE date_extra::text LIKE $1";
-        params.push(`${monthDateFilter}%`);
+        const start = `${year}-${monthNum}-01`;
+        const end = new Date(parseInt(year), parseInt(monthNum), 1).toISOString().split('T')[0];
+        q += " WHERE date_extra >= $1 AND date_extra < $2";
+        params.push(start, end);
       }
 
       q += ' ORDER BY date_extra DESC';
@@ -1410,9 +1450,12 @@ const resolvers = {
       let q = 'SELECT * FROM public.doublages WHERE 1=1';
       const params = [];
       if (month) {
-        const [y, m] = month.split('_');
-        q += ` AND date_part('year', date) = $${params.length + 1} AND date_part('month', date) = $${params.length + 2}`;
-        params.push(y, m);
+        const [year, monthNum] = month.split('_');
+        const start = `${year}-${monthNum}-01`;
+        const endDay = new Date(parseInt(year), parseInt(monthNum), 1);
+        const end = endDay.toISOString().split('T')[0];
+        q += ` AND date >= $${params.length + 1} AND date < $${params.length + 2}`;
+        params.push(start, end);
       }
       if (startDate) {
         q += ` AND date >= $${params.length + 1}`;
@@ -1476,14 +1519,16 @@ const resolvers = {
 
         // Fetch real-time Advances and Extras to overlay
         const [year, monthNum] = month.split('_');
-        const monthDateFilter = `${year}-${monthNum}`; // 'YYYY-MM'
+        const start = `${year}-${monthNum}-01`;
+        const endDay = new Date(parseInt(year), parseInt(monthNum), 1);
+        const end = endDay.toISOString().split('T')[0];
 
         const [resAdvances, resExtras, resAbsents, resRetards, resDoublages] = await Promise.all([
-          pool.query(`SELECT * FROM public.avances WHERE TO_CHAR(date::date, 'YYYY_MM') = $1 ${userId ? `AND user_id = $2` : ''}`, userId ? [month, userId] : [month]),
-          pool.query(`SELECT * FROM public.extras WHERE TO_CHAR(date_extra, 'YYYY_MM') = $1 ${userId ? `AND user_id = $2` : ''}`, userId ? [month, userId] : [month]),
-          pool.query(`SELECT * FROM public.absents WHERE TO_CHAR(date, 'YYYY_MM') = $1 ${userId ? `AND user_id = $2` : ''}`, userId ? [month, userId] : [month]),
-          pool.query(`SELECT * FROM public.retards WHERE TO_CHAR(date, 'YYYY_MM') = $1 ${userId ? `AND user_id = $2` : ''}`, userId ? [month, userId] : [month]),
-          pool.query(`SELECT * FROM public.doublages WHERE TO_CHAR(date, 'YYYY_MM') = $1 ${userId ? `AND user_id = $2` : ''}`, userId ? [month, userId] : [month])
+          pool.query(`SELECT * FROM public.avances WHERE date >= $1 AND date < $2 ${userId ? `AND user_id = $3` : ''}`, userId ? [start, end, userId] : [start, end]),
+          pool.query(`SELECT * FROM public.extras WHERE date_extra >= $1 AND date_extra < $2 ${userId ? `AND user_id = $3` : ''}`, userId ? [start, end, userId] : [start, end]),
+          pool.query(`SELECT * FROM public.absents WHERE date >= $1 AND date < $2 ${userId ? `AND user_id = $3` : ''}`, userId ? [start, end, userId] : [start, end]),
+          pool.query(`SELECT * FROM public.retards WHERE date >= $1 AND date < $2 ${userId ? `AND user_id = $3` : ''}`, userId ? [start, end, userId] : [start, end]),
+          pool.query(`SELECT * FROM public.doublages WHERE date >= $1 AND date < $2 ${userId ? `AND user_id = $3` : ''}`, userId ? [start, end, userId] : [start, end])
         ]);
 
         const advances = resAdvances.rows;
@@ -1492,32 +1537,62 @@ const resolvers = {
         const retards = resRetards.rows;
         const doublages = resDoublages.rows;
 
+        // Pre-group data by userId_date for O(1) lookup
+        const advancesMap = new Map<string, any[]>();
+        advances.forEach((a: any) => {
+          const key = `${a.user_id}_${formatDateLocal(a.date)}`;
+          if (!advancesMap.has(key)) advancesMap.set(key, []);
+          advancesMap.get(key)!.push(a);
+        });
+
+        const extrasMap = new Map<string, any[]>();
+        extras.forEach((e: any) => {
+          const key = `${e.user_id}_${formatDateLocal(e.date_extra)}`;
+          if (!extrasMap.has(key)) extrasMap.set(key, []);
+          extrasMap.get(key)!.push(e);
+        });
+
+        const absentsMap = new Map<string, any>();
+        absents.forEach((a: any) => {
+          const key = `${a.user_id}_${formatDateLocal(a.date)}`;
+          absentsMap.set(key, a);
+        });
+
+        const retardsMap = new Map<string, any>();
+        retards.forEach((r: any) => {
+          const key = `${r.user_id}_${formatDateLocal(r.date)}`;
+          retardsMap.set(key, r);
+        });
+
+        const doublagesMap = new Map<string, any[]>();
+        doublages.forEach((d: any) => {
+          const key = `${d.user_id}_${formatDateLocal(d.date)}`;
+          if (!doublagesMap.has(key)) doublagesMap.set(key, []);
+          doublagesMap.get(key)!.push(d);
+        });
+
         const results = res.rows.map((r: any) => {
           const dateStr = formatDateLocal(r.date);
+          const lookupKey = `${r.user_id}_${dateStr}`;
 
-          // Calculate dynamic totals
-          // User Objective: Include Pending advances so they see them immediately
-          const dayAdvances = advances.filter((a: any) =>
-            (String(a.user_id) === String(r.user_id)) &&
-            (formatDateLocal(a.date) === dateStr)
-          );
+          // Calculate dynamic totals using pre-grouped maps
+          const dayAdvances = advancesMap.get(lookupKey) || [];
           const totalAdvance = dayAdvances.reduce((sum: number, a: any) => sum + parseFloat(a.montant || 0), 0);
 
-          const dayExtras = extras.filter((e: any) =>
-            (String(e.user_id) === String(r.user_id)) &&
-            (formatDateLocal(e.date_extra) === dateStr)
-          );
-
+          const dayExtras = extrasMap.get(lookupKey) || [];
           let totalExtra = 0;
           let totalPrime = 0;
-          let totalInfraction = 0;
+          let totalInfractionExtra = 0;
 
           dayExtras.forEach((e: any) => {
             const motif = (e.motif || "").toLowerCase();
             if (motif.startsWith("prime")) totalPrime += parseFloat(e.montant || 0);
-            else if (motif.startsWith("infraction")) totalInfraction += parseFloat(e.montant || 0);
+            else if (motif.startsWith("infraction")) totalInfractionExtra += parseFloat(e.montant || 0);
             else totalExtra += parseFloat(e.montant || 0);
           });
+
+          const dayDoublages = doublagesMap.get(lookupKey) || [];
+          const totalDoublage = dayDoublages.reduce((sum: number, d: any) => sum + parseFloat(d.montant || 0), 0);
 
           // Build final values - prioritize manual updates
           let finalPresent = r.present;
@@ -1526,13 +1601,10 @@ const resolvers = {
           let finalInfraction = r.infraction || 0;
           let finalMiseAPied = r.mise_a_pied || 0;
 
-          if (r.updated) {
-            // If manually updated, we trust the database record as the final word.
-            // No overlays for these primary fields.
-          } else {
+          if (!r.updated) {
             // Real-time Absence/Retard overlay - only for auto records
-            const dayAbsent = absents.find((a: any) => (String(a.user_id) === String(r.user_id)) && (formatDateLocal(a.date) === dateStr));
-            const dayRetard = retards.find((ret: any) => (String(ret.user_id) === String(r.user_id)) && (formatDateLocal(ret.date) === dateStr));
+            const dayAbsent = absentsMap.get(lookupKey);
+            const dayRetard = retardsMap.get(lookupKey);
 
             if (dayAbsent) {
               const t = (dayAbsent.type || "").toLowerCase().trim();
@@ -1592,12 +1664,6 @@ const resolvers = {
             finalRemark = remarkParts.length > 0 ? remarkParts.join(' | ') : null;
           }
 
-          const dayDoublages = doublages.filter((d: any) =>
-            (String(d.user_id) === String(r.user_id)) &&
-            (formatDateLocal(d.date) === dateStr)
-          );
-          const totalDoublage = dayDoublages.reduce((sum: number, d: any) => sum + parseFloat(d.montant || 0), 0);
-
           return {
             ...r,
             date: dateStr,
@@ -1605,7 +1671,7 @@ const resolvers = {
             extra: totalExtra,
             prime: totalPrime,
             doublage: totalDoublage,
-            infraction: Math.max(r.infraction || 0, totalInfraction),
+            infraction: Math.max(r.infraction || 0, totalInfractionExtra),
             mise_a_pied: finalMiseAPied,
             present: finalPresent,
             remarque: finalRemark,
@@ -1635,10 +1701,13 @@ const resolvers = {
         payroll.forEach((row: any) => {
           const uid = String(row.user_id);
           if (!statsMap.has(uid)) {
-            statsMap.set(uid, { totalMins: 0, daysWorked: 0 });
+            statsMap.set(uid, { totalMins: 0, daysWorked: 0, totalRetard: 0, onTimeDays: 0 });
           }
           const stats = statsMap.get(uid);
           stats.daysWorked += 1;
+          stats.totalRetard += (row.retard || 0);
+          if ((row.retard || 0) === 0) stats.onTimeDays += 1;
+
           if (row.clock_in && row.clock_out) {
             try {
               const [h1, m1] = row.clock_in.split(':').map(Number);
@@ -1653,9 +1722,13 @@ const resolvers = {
         });
 
         const results = users.map((user: any) => {
-          const stats = statsMap.get(String(user.id)) || { totalMins: 0, daysWorked: 0 };
+          const stats = statsMap.get(String(user.id)) || { totalMins: 0, daysWorked: 0, totalRetard: 0, onTimeDays: 0 };
           const totalHours = parseFloat((stats.totalMins / 60).toFixed(1));
           const avg = stats.daysWorked > 0 ? parseFloat((totalHours / stats.daysWorked).toFixed(1)) : 0;
+
+          // Performance Score: heavy weight on onTimeDays, deduction for totalRetard
+          const punctualityScore = (stats.onTimeDays * 50) + (stats.daysWorked * 10) - (stats.totalRetard) + (totalHours / 10);
+
           return {
             user: {
               ...user,
@@ -1663,11 +1736,14 @@ const resolvers = {
             },
             totalHours,
             daysWorked: stats.daysWorked,
-            avgHoursPerDay: avg
+            avgHoursPerDay: avg,
+            totalRetard: stats.totalRetard,
+            onTimeDays: stats.onTimeDays,
+            punctualityScore
           };
         })
-          .filter((r: any) => r.totalHours > 0)
-          .sort((a: any, b: any) => b.totalHours - a.totalHours)
+          .filter((r: any) => r.daysWorked > 0)
+          .sort((a: any, b: any) => b.punctualityScore - a.punctualityScore)
           .slice(0, 5);
 
         return results;
@@ -1777,7 +1853,8 @@ const resolvers = {
       const payrollTableName = `paiecurrent_${monthKey}`;
       await initializePayrollTable(monthKey);
 
-      // Parallelize Fetching
+      // Parallelize Fetching with optimized index-friendly queries
+      const nextDateSQL = formatDateLocal(new Date(logicalDay.getTime() + 86400000));
       const [usersRes, schedulesRes, allPunches, retardsRes, absentsRes, payrollRes] = await Promise.all([
         pool.query(`
           SELECT id, username, role, status, zktime_id, "département" as departement, email, phone, cin, base_salary, photo, is_blocked, permissions, nbmonth 
@@ -1786,8 +1863,8 @@ const resolvers = {
         `),
         pool.query('SELECT * FROM public.user_schedules'),
         fetchDayPunches(logicalDay),
-        pool.query('SELECT user_id, reason FROM public.retards WHERE date::date = $1::date', [dateSQL]),
-        pool.query('SELECT user_id, reason, type FROM public.absents WHERE date::date = $1::date', [dateSQL]),
+        pool.query('SELECT user_id, reason FROM public.retards WHERE date >= $1 AND date < $2', [dateSQL, nextDateSQL]),
+        pool.query('SELECT user_id, reason, type FROM public.absents WHERE date >= $1 AND date < $2', [dateSQL, nextDateSQL]),
         pool.query(`SELECT * FROM public."${payrollTableName}" WHERE date = $1`, [dateSQL])
       ]);
 
@@ -1799,10 +1876,21 @@ const resolvers = {
         permissions: typeof u.permissions === 'object' ? JSON.stringify(u.permissions) : u.permissions
       }));
 
-      const schedules = schedulesRes.rows;
-      const dayRetards = retardsRes.rows;
-      const dayAbsents = absentsRes.rows;
-      const dayPayroll = payrollRes.rows;
+      const schedulesMap = new Map<number, any>();
+      schedulesRes.rows.forEach((s: any) => schedulesMap.set(Number(s.user_id), s));
+
+      const retardsMap = new Map<number, any>();
+      retardsRes.rows.forEach((r: any) => retardsMap.set(Number(r.user_id), r));
+
+      const absentsMap = new Map<number, any[]>();
+      absentsRes.rows.forEach((a: any) => {
+        const uid = Number(a.user_id);
+        if (!absentsMap.has(uid)) absentsMap.set(uid, []);
+        absentsMap.get(uid)!.push(a);
+      });
+
+      const dayPayrollMap = new Map<number, any>();
+      payrollRes.rows.forEach((p: any) => dayPayrollMap.set(Number(p.user_id), p));
 
       // Group punches by user_id for O(1) lookup inside the loop
       const punchesByUser = new Map();
@@ -1813,8 +1901,8 @@ const resolvers = {
       });
 
       const results = users.map((user: any) => {
-        // ... (rest of the map logic)
-        const schedule = schedules.find((s: any) => s.user_id == user.id);
+        const uId = Number(user.id);
+        const schedule = schedulesMap.get(uId);
         const originalShiftType = schedule ? schedule[dayCol] : "Repos";
         let shiftType = originalShiftType;
 
@@ -1847,11 +1935,11 @@ const resolvers = {
 
         // Determine State for Dashboard
         let state = 'Absent';
-        const hasPunches = userPunches.length > 1 || userPunches.length === 1; // Simplified for safety
+        const hasPunches = userPunches.length > 0;
 
         // Check manual overrides in Absents table
-        const userAbsents = dayAbsents.filter((a: any) => a.user_id == user.id);
-        const currentRetardRecord = dayRetards.find((r: any) => r.user_id == user.id);
+        const userAbsents = absentsMap.get(uId) || [];
+        const currentRetardRecord = retardsMap.get(uId);
 
         // Live Retard Detection
         const sTypeUpper = (shiftType || "").toUpperCase();
@@ -1958,7 +2046,7 @@ const resolvers = {
         }
 
         // PRIORITY: If manually updated in payroll, use those values
-        const userPayroll = dayPayroll.find((p: any) => p.user_id == user.id);
+        const userPayroll = dayPayrollMap.get(uId);
         const isManuallyUpdated = userPayroll && userPayroll.updated === true;
 
         if (isManuallyUpdated) {
@@ -2458,17 +2546,24 @@ const resolvers = {
       return { ...res.rows[0], date: formatDateLocal(res.rows[0].date) };
     },
     addExtra: async (_: any, { user_id, montant, date_extra, motif }: any, context: any) => {
-      try {
-        await pool.query('ALTER TABLE public.extras ADD COLUMN IF NOT EXISTS motif TEXT');
-      } catch (e) { }
-      const userRes = await pool.query('SELECT username FROM public.users WHERE id = $1', [user_id]);
-      if (userRes.rows.length === 0) throw new Error("User not found");
-      const username = userRes.rows[0].username;
+      // Use a subquery to insert with username in one go for speed
+      const res = await pool.query(
+        `INSERT INTO public.extras(user_id, username, montant, date_extra, motif) 
+         SELECT id, username, $2, $3, $4 FROM public.users WHERE id = $1 
+         RETURNING *`,
+        [user_id, montant, date_extra, motif]
+      );
 
-      const res = await pool.query(`INSERT INTO public.extras(user_id, username, montant, date_extra, motif) VALUES($1, $2, $3, $4, $5) RETURNING *`, [user_id, username, montant, date_extra, motif]);
-      await recomputePayrollForDate(formatDateLocal(date_extra) as string, String(user_id));
-      await createNotification('payment', "Nouveau paiement (Extra)", `${username} a reçu un extra de ${montant} TND pour: ${motif || 'Non spécifié'}`, user_id, context.userDone, `/payroll?userId=${user_id}`);
-      return { ...res.rows[0], montant: parseFloat(res.rows[0].montant || 0), date_extra: formatDateTimeLocal(res.rows[0].date_extra) };
+      if (res.rows.length === 0) throw new Error("User not found or insertion failed");
+      const row = res.rows[0];
+
+      // Run recompute and notification in parallel
+      await Promise.all([
+        recomputePayrollForDate(formatDateLocal(date_extra) as string, String(user_id)),
+        createNotification('payment', "Nouveau paiement (Extra)", `${row.username} a reçu un extra de ${montant} TND pour: ${motif || 'Non spécifié'}`, user_id, context.userDone, `/payroll?userId=${user_id}`)
+      ]);
+
+      return { ...row, montant: parseFloat(row.montant || 0), date_extra: formatDateTimeLocal(row.date_extra) };
     },
     deleteExtra: async (_: any, { id }: { id: string }, context: any) => {
       const info = await pool.query('SELECT user_id, date_extra FROM public.extras WHERE id = $1', [id]);
@@ -2497,24 +2592,23 @@ const resolvers = {
       return { ...row, montant: parseFloat(row.montant || 0), date_extra: formatDateTimeLocal(row.date_extra) };
     },
     addDoublage: async (_: any, { user_id, montant, date }: any, context: any) => {
-      const userRes = await pool.query('SELECT username FROM public.users WHERE id = $1', [user_id]);
-      if (userRes.rows.length === 0) throw new Error("User not found");
-      const username = userRes.rows[0].username;
+      // Use subquery for speed
+      const res = await pool.query(
+        `INSERT INTO public.doublages(user_id, username, montant, date) 
+         SELECT id, username, $2, $3 FROM public.users WHERE id = $1 
+         RETURNING *`,
+        [user_id, montant, date]
+      );
 
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS public.doublages(
-        id SERIAL PRIMARY KEY,
-        user_id INT,
-        username VARCHAR(100),
-        montant FLOAT,
-        date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-      `);
+      if (res.rows.length === 0) throw new Error("User not found or insertion failed");
+      const row = res.rows[0];
 
-      const res = await pool.query(`INSERT INTO public.doublages(user_id, username, montant, date) VALUES($1, $2, $3, $4) RETURNING *`, [user_id, username, montant, date]);
-      await recomputePayrollForDate(formatDateLocal(date) as string, String(user_id));
-      await createNotification('payment', "Nouveau paiement (Doublage)", `${username} a reçu un doublage de ${montant} TND.`, user_id, null, `/payroll?userId=${user_id}`);
-      return { ...res.rows[0], montant: parseFloat(res.rows[0].montant || 0), date: formatDateTimeLocal(res.rows[0].date) };
+      await Promise.all([
+        recomputePayrollForDate(formatDateLocal(date) as string, String(user_id)),
+        createNotification('payment', "Nouveau paiement (Doublage)", `${row.username} a reçu un doublage de ${montant} TND.`, user_id, context.userDone, `/payroll?userId=${user_id}`)
+      ]);
+
+      return { ...row, montant: parseFloat(row.montant || 0), date: formatDateTimeLocal(row.date) };
     },
     deleteDoublage: async (_: any, { id }: { id: string }) => {
       const info = await pool.query('SELECT user_id, date FROM public.doublages WHERE id = $1', [id]);
@@ -2625,8 +2719,24 @@ const resolvers = {
         const motifPrefix = label.toLowerCase();
         const check = await pool.query(`SELECT id FROM public.extras WHERE user_id = $1 AND date_extra::date = $2::date AND LOWER(motif) LIKE $3`, [user_id, dateSQL, `${motifPrefix}%`]);
 
-        // Always upsert if value is defined (even 0), effectively allowing "Zero Override"
         const motif = (label === 'Extra') ? 'Extra' : label;
+
+        if (val === 0) {
+          // If value is 0 and no record exists, don't create one (avoid cluttering)
+          if (check.rows.length === 0) return;
+
+          // If record exists and value is set to 0:
+          // For Extra/Prime, we can just delete it because 0 is the default anyway.
+          // For Infraction, we might want to keep it as 0 to override an automatic penalty.
+          if (label !== 'Infraction') {
+            await pool.query('DELETE FROM public.extras WHERE id = $1', [check.rows[0].id]);
+            return;
+          }
+          // For Infraction, update to 0 so the override remains active.
+          await pool.query('UPDATE public.extras SET montant = 0, motif = $1 WHERE id = $2', [motif, check.rows[0].id]);
+          return;
+        }
+
         if (check.rows.length > 0) {
           await pool.query('UPDATE public.extras SET montant = $1, motif = $2 WHERE id = $3', [val, motif, check.rows[0].id]);
           // Cleanup duplicates

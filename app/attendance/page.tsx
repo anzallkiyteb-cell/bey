@@ -86,6 +86,8 @@ const GET_TOP_PERFORMERS = gql`
       totalHours
       daysWorked
       avgHoursPerDay
+      totalRetard
+      onTimeDays
     }
   }
 `
@@ -305,7 +307,10 @@ function AttendanceContent() {
     return performersData.getTopPerformers.map((p: any) => ({
       ...p.user,
       totalHours: p.totalHours || 0,
-      avgHoursPerDay: p.avgHoursPerDay || 0
+      avgHoursPerDay: p.avgHoursPerDay || 0,
+      totalRetard: p.totalRetard || 0,
+      onTimeDays: p.onTimeDays || 0,
+      daysWorked: p.daysWorked || 0
     }));
   }, [performersData]);
 
@@ -600,7 +605,15 @@ function AttendanceContent() {
                             <TrendingUp className="h-4 w-4" />
                             <span className="font-black text-base sm:text-lg tabular-nums tracking-tighter">{performer.totalHours}h</span>
                           </div>
-                          <p className="text-[10px] sm:text-xs font-bold text-[#6b5744]/60 uppercase tracking-widest">{performer.avgHoursPerDay}h / JR</p>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <div className={cn(
+                              "text-[10px] sm:text-xs font-bold uppercase tracking-tight px-2 py-1 rounded-md flex flex-col items-center sm:items-end leading-none",
+                              (performer.totalRetard || 0) === 0 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                            )}>
+                              <span>{performer.onTimeDays}/{performer.daysWorked} Jrs à l'heure</span>
+                              <span className="opacity-70 mt-0.5">{performer.daysWorked > 0 ? Math.round((performer.onTimeDays / performer.daysWorked) * 100) : 0}% Ponctuel</span>
+                            </div>
+                          </div>
                         </div>
 
                         <Button
