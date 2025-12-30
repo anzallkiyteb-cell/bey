@@ -1,25 +1,40 @@
 import { Pool } from 'pg';
 
-const createPool = () => {
-    // Singleton pattern to prevent multiple pools in development
-    if (typeof global !== 'undefined') {
-        if (!(global as any).pgPool) {
-            (global as any).pgPool = new Pool({
-                connectionString: process.env.DATABASE_URL,
-                max: process.env.NODE_ENV === 'production' ? 20 : 5, // Lower limit in dev
-                idleTimeoutMillis: 10000,
-                connectionTimeoutMillis: 5000,
-            });
-            console.log('[Database] New pool created');
-        }
-        return (global as any).pgPool as Pool;
-    }
+/**
+ * DATABASE CONNECTION POOL SINGLETON
+ * 
+ * Optimized for low max_connections (current limit: 50) and multiple concurrent users.
+ */
 
-    // Fallback for non-global environments (rare in Next.js server)
-    return new Pool({
-        connectionString: process.env.DATABASE_URL,
-        max: 20,
-    });
+declare global {
+    var pgPool: Pool | undefined;
+}
+
+const isProd = process.env.NODE_ENV === 'production';
+
+const poolConfig = {
+    connectionString: process.env.DATABASE_URL,
+    // Keep max connections low per instance to allow multiple developers/users
+    // (Total server limit is 50, so Max 10 per dev instance is safer)
+    max: isProd ? 30 : 10,
+    // Release idle connections very quickly to free up slots for other users
+    idleTimeoutMillis: 2000,
+    // Faster timeout if connection cannot be established
+    connectionTimeoutMillis: 5000,
+    // Ensure we don't hold the connection forever
+    maxUses: 5000,
 };
 
-export default createPool;
+// Singleton initialization
+const pool = global.pgPool || new Pool(poolConfig);
+
+if (!isProd) {
+    global.pgPool = pool;
+}
+
+// Error handling
+pool.on('error', (err: Error) => {
+    console.error('[Database] Unexpected pool error:', err);
+});
+
+export default () => pool;
