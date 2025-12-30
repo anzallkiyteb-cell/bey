@@ -965,7 +965,7 @@ export default function PayrollPage() {
               <table className="w-full min-w-[800px]">
                 <thead className="bg-[#f8f6f1]">
                   <tr>
-                    {canSee('payroll', 'col_employee') && <th className="p-4 text-left font-semibold text-[#6b5744]">Employé</th>}
+                    <th className="p-4 text-left font-semibold text-[#6b5744]">Employé</th>
                     {canSee('payroll', 'col_base') && <th className="p-4 text-left font-semibold text-[#6b5744]">Base</th>}
                     {canSee('payroll', 'col_abs_days') && <th className="p-4 text-left font-semibold text-[#6b5744]">Jours Abs</th>}
                     {canSee('payroll', 'col_primes') && <th className="p-4 text-left font-semibold text-[#6b5744]">Primes</th>}
@@ -981,27 +981,25 @@ export default function PayrollPage() {
                   {filteredPayrollSummary.map((p: any) => (
                     <tr key={p.userId} id={`payroll-desktop-${p.userId}`} className={cn("border-b border-[#c9b896]/30 hover:bg-[#f8f6f1]/50", p.isPaid && "!bg-green-300 !border-green-500")}>
 
-                      {canSee('payroll', 'col_employee') && (
-                        <td className="p-4">
-                          <button
-                            onClick={() => canSee('payroll', 'user_details_modal') && openEmployeePlanning(p)}
-                            className={`flex items-center gap-3 text-left ${!canSee('payroll', 'user_details_modal') ? 'cursor-default opacity-100' : ''}`}
-                            disabled={!canSee('payroll', 'user_details_modal')}
-                          >
-                            <div className="h-10 w-10 rounded-full bg-[#8b5a2b] flex items-center justify-center text-white font-bold overflow-hidden border border-[#c9b896]/30">
-                              {p.user.photo ? (
-                                <img src={p.user.photo} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                p.user.username?.charAt(0)
-                              )}
-                            </div>
-                            <div>
-                              <p className="font-semibold text-[#3d2c1e]">{p.user.username}</p>
-                              <p className="text-xs text-[#6b5744]">{p.user.departement}</p>
-                            </div>
-                          </button>
-                        </td>
-                      )}
+                      <td className="p-4">
+                        <button
+                          onClick={() => canSee('payroll', 'user_details_modal') && openEmployeePlanning(p)}
+                          className={`flex items-center gap-3 text-left ${!canSee('payroll', 'user_details_modal') ? 'cursor-default opacity-100' : ''}`}
+                          disabled={!canSee('payroll', 'user_details_modal')}
+                        >
+                          <div className="h-10 w-10 rounded-full bg-[#8b5a2b] flex items-center justify-center text-white font-bold overflow-hidden border border-[#c9b896]/30">
+                            {p.user.photo ? (
+                              <img src={p.user.photo} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              p.user.username?.charAt(0)
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-[#3d2c1e]">{p.user.username}</p>
+                            <p className="text-xs text-[#6b5744]">{p.user.departement}</p>
+                          </div>
+                        </button>
+                      </td>
                       {canSee('payroll', 'col_base') && <td className="p-4 font-medium text-[#3d2c1e]">{p.baseSalary.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>}
                       {canSee('payroll', 'col_abs_days') && <td className="p-4 text-red-600 font-bold">{p.absentDays}</td>}
                       {canSee('payroll', 'col_primes') && <td className="p-4 text-emerald-600">+{Math.round(p.totalPrimes)}</td>}
