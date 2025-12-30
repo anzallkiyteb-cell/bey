@@ -473,9 +473,9 @@ const determineShift = (first: Date, last: Date | null, isOngoing: boolean) => {
 
   const startHour = getTunisiaHour(first);
 
-  // SOIR: Starts afternoon/evening (>= 15:00)
-  // User definition: Entrée 15:00 -> Soir
-  if (startHour >= 15) {
+  // SOIR: Starts afternoon/evening (>= 14:00)
+  // User definition: Entrée 15:00 -> Soir (We use 14 to allow early arrival)
+  if (startHour >= 14) {
     return "Soir";
   }
 
@@ -882,7 +882,7 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       }
 
       const firstP = userPunches[0];
-      const firstD = new Date(firstP.device_time);
+      const firstD = parseMachineDate(firstP.device_time);
       const sTypeUpper = (shiftType || "").toUpperCase();
       const firstHour = getTunisiaHour(firstD);
       if (firstHour >= 14) {
@@ -908,11 +908,12 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
         const shift2Start = new Date(`${dateSQL}T19:00:00.000+01:00`);
 
         const p1 = userPunches.find((p: any) => {
-          const d = new Date(typeof p.device_time === 'string' ? p.device_time.replace(" ", "T") + "+01:00" : p.device_time);
-          return d.getHours() >= 4 && d.getHours() < 15;
+          const d = parseMachineDate(p.device_time);
+          const h = getTunisiaHour(d);
+          return h >= 4 && h < 15;
         });
         if (p1) {
-          const d1 = new Date(p1.device_time);
+          const d1 = parseMachineDate(p1.device_time);
           if (d1 > shift1Start) {
             const diff = Math.floor((d1.getTime() - shift1Start.getTime()) / 60000);
             if (diff > 0) totalRetard += diff;
@@ -920,11 +921,12 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
         }
 
         const p2 = userPunches.find((p: any) => {
-          const d = new Date(typeof p.device_time === 'string' ? p.device_time.replace(" ", "T") + "+01:00" : p.device_time);
-          return d.getHours() >= 16;
+          const d = parseMachineDate(p.device_time);
+          const h = getTunisiaHour(d);
+          return h >= 16;
         });
         if (p2) {
-          const d2 = new Date(p2.device_time);
+          const d2 = parseMachineDate(p2.device_time);
           if (d2 > shift2Start) {
             const diff = Math.floor((d2.getTime() - shift2Start.getTime()) / 60000);
             if (diff > 0) totalRetard += diff;
@@ -972,7 +974,7 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
           }
         } else {
           const firstP = userPunches[0];
-          const firstD = new Date(firstP.device_time);
+          const firstD = parseMachineDate(firstP.device_time);
 
           if (firstD > shiftStartTime) {
             const diffMs = firstD.getTime() - shiftStartTime.getTime();
@@ -1835,6 +1837,12 @@ const resolvers = {
           const lastDate = userPunches.length > 1 ? parseMachineDate(userPunches[userPunches.length - 1].device_time) : null;
           const isOngoing = userPunches.length % 2 !== 0;
           shift = determineShift(firstDate, lastDate, isOngoing);
+
+          // Update shiftType for calculation to match the detected shift
+          // This ensures that if they are detected as "Soir", we calculate retard based on 16:00
+          if (shift && shift !== "Non défini") {
+            shiftType = shift;
+          }
         }
 
         // Determine State for Dashboard
