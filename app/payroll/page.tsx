@@ -365,7 +365,7 @@ export default function PayrollPage() {
   const userIdParam = searchParams.get("userId");
 
   useEffect(() => {
-    if (!userIdParam || !data?.personnelStatus) return;
+    if (!userIdParam || !payrollData?.getPayroll) return;
 
     // 1. Clear filters
     if (searchTerm) setSearchTerm("");
@@ -391,7 +391,7 @@ export default function PayrollPage() {
     }, 200);
 
     return () => clearInterval(interval);
-  }, [userIdParam, payrollData?.personnelStatus]);
+  }, [userIdParam, payrollData?.getPayroll]);
 
   // Extra Dialog Filters
   const [extraSearchTerm, setExtraSearchTerm] = useState("")
