@@ -417,6 +417,11 @@ export default function PayrollPage() {
   // Paid View Dialog State
   const [viewPaidOpen, setViewPaidOpen] = useState(false)
 
+
+  // Header Button Dialogs (Grouped View with Dates)
+  const [listeDoublageOpen, setListeDoublageOpen] = useState(false)
+  const [listeExtrasOpen, setListeExtrasOpen] = useState(false)
+  const [listePrimesOpen, setListePrimesOpen] = useState(false)
   const [addExtra, { loading: addingExtra }] = useMutation(ADD_EXTRA)
   const [addDoublage, { loading: addingDoublage }] = useMutation(ADD_DOUBLAGE)
   const [payUser, { loading: payingUser }] = useMutation(PAY_USER)
@@ -433,6 +438,9 @@ export default function PayrollPage() {
   const [editingDoublageId, setEditingDoublageId] = useState<string | null>(null)
   const [editDoublageAmount, setEditDoublageAmount] = useState("")
   const [editDoublageDate, setEditDoublageDate] = useState<Date | undefined>(undefined)
+
+  const [doublageCalendarOpen, setDoublageCalendarOpen] = useState(false)
+  const [extraCalendarOpen, setExtraCalendarOpen] = useState(false)
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
@@ -1091,7 +1099,7 @@ export default function PayrollPage() {
             {canSee('payroll', 'stats_primes') && (
               <Card
                 className="border-amber-500 bg-amber-50 p-4 shadow-md cursor-pointer hover:bg-amber-100 transition-colors"
-                onClick={() => setViewPrimesOpen(true)}
+                onClick={() => setListePrimesOpen(true)}
               >
                 <p className="text-sm text-amber-700 font-semibold">Total Primes</p>
                 <p className="text-2xl font-bold text-amber-700">{Math.round(globalStats.totalPrimes)} DT</p>
@@ -1100,7 +1108,7 @@ export default function PayrollPage() {
             {canSee('payroll', 'stats_extras') && (
               <Card
                 className="border-emerald-500 bg-emerald-50 p-4 shadow-md cursor-pointer hover:bg-emerald-100 transition-colors"
-                onClick={() => setViewExtrasOpen(true)}
+                onClick={() => setListeExtrasOpen(true)}
               >
                 <p className="text-sm text-emerald-700 font-semibold">Total Extras</p>
                 <p className="text-2xl font-bold text-emerald-700">{Math.round(globalStats.totalExtras)} DT</p>
@@ -1109,7 +1117,7 @@ export default function PayrollPage() {
             {canSee('payroll', 'stats_doublages') && (
               <Card
                 className="border-cyan-500 bg-cyan-50 p-4 shadow-md cursor-pointer hover:bg-cyan-100 transition-colors"
-                onClick={() => setViewDoublagesOpen(true)}
+                onClick={() => setListeDoublageOpen(true)}
               >
                 <p className="text-sm text-cyan-700 font-semibold">Total Doublages</p>
                 <p className="text-2xl font-bold text-cyan-700">{Math.round(globalStats.totalDoublages)} DT</p>
@@ -1435,62 +1443,109 @@ export default function PayrollPage() {
           </DialogHeader>
 
           {(() => {
-            // Group doublages by user
-            const groupedByUser = new Map<string, { user: any, records: any[], total: number }>();
-
-            filteredDoublagesList.forEach((record: any) => {
-              const userId = String(record.user_id);
-              if (!groupedByUser.has(userId)) {
-                const user = users.find((u: any) => u.id === record.user_id);
-                groupedByUser.set(userId, { user, records: [], total: 0 });
-              }
-              const group = groupedByUser.get(userId)!;
-              group.records.push(record);
-              group.total += record.montant;
-            });
-
             const localTotal = filteredDoublagesList.reduce((acc: number, d: any) => acc + d.montant, 0);
 
             return (
               <>
                 <div className="mt-4 space-y-3 max-h-[400px] overflow-y-auto pr-2">
-                  {groupedByUser.size === 0 ? (
+                  {filteredDoublagesList.length === 0 ? (
                     <div className="text-center py-8 text-[#6b5744]">Aucun doublage trouvé</div>
                   ) : (
-                    Array.from(groupedByUser.values()).map(({ user, records, total }) => (
-                      <div key={user?.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
-                              {user?.photo ? (
-                                <img src={user.photo} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
-                                  {user?.username?.charAt(0)}
+                    filteredDoublagesList.map((record: any) => {
+                      const user = users.find((u: any) => u.id === record.user_id);
+                      return (
+                        <div key={record.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
+                                {user?.photo ? (
+                                  <img src={user.photo} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
+                                    {user?.username?.charAt(0)}
+                                  </div>
+                                )}
+                              </div>
+                              <div>
+                                <p className="font-bold text-[#3d2c1e] text-sm">{user?.username}</p>
+                                <p className="text-[10px] text-[#6b5744]">{format(new Date(record.date), 'dd/MM/yyyy', { locale: fr })}</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {editingDoublageId === record.id ? (
+                                <div className="flex items-center gap-2">
+                                  <Popover open={doublageCalendarOpen} onOpenChange={setDoublageCalendarOpen}>
+                                    <PopoverTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        className={cn(
+                                          "h-8 justify-start text-left font-normal text-[10px] w-[110px] bg-white border-[#c9b896]/30",
+                                          !editDoublageDate && "text-muted-foreground"
+                                        )}
+                                      >
+                                        <CalendarIcon className="mr-1 h-3 w-3 text-[#8b5a2b]" />
+                                        {editDoublageDate ? format(editDoublageDate, "dd/MM/yyyy") : "Date"}
+                                      </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0 bg-white border-[#c9b896]" align="start">
+                                      <Calendar
+                                        mode="single"
+                                        selected={editDoublageDate}
+                                        onSelect={(date) => {
+                                          setEditDoublageDate(date)
+                                          setDoublageCalendarOpen(false)
+                                        }}
+                                        initialFocus
+                                        locale={fr}
+                                      />
+                                    </PopoverContent>
+                                  </Popover>
+                                  <Input
+                                    type="number"
+                                    value={editDoublageAmount}
+                                    onChange={(e) => setEditDoublageAmount(e.target.value)}
+                                    className="h-8 w-16 text-[10px] bg-white border-[#c9b896]/30"
+                                  />
+                                  <Button size="sm" onClick={() => handleUpdateDoublage(record.id)} className="h-8 bg-[#3d2c1e] text-white px-2 text-[10px] font-black">OK</Button>
+                                  <Button size="sm" variant="ghost" onClick={() => setEditingDoublageId(null)} className="h-8 px-2 text-[#6b5744] text-[10px]">X</Button>
                                 </div>
+                              ) : (
+                                <>
+                                  <div className="text-cyan-600 font-black text-sm mr-2">
+                                    {record.montant.toLocaleString()} DT
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setEditingDoublageId(record.id);
+                                      setEditDoublageAmount(record.montant.toString());
+                                      setEditDoublageDate(new Date(record.date));
+                                    }}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <RotateCcw className="h-4 w-4 text-blue-600" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setDeleteTargetId(record.id);
+                                      setDeleteType("doublage");
+                                      setDeleteConfirmOpen(true);
+                                    }}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <XCircle className="h-4 w-4 text-red-600" />
+                                  </Button>
+                                </>
                               )}
                             </div>
-                            <div className="flex-1">
-                              <p className="font-bold text-[#3d2c1e] text-sm">{user?.username}</p>
-                              <p className="text-[10px] text-[#6b5744]">Dates travaillées:</p>
-                            </div>
-                          </div>
-                          <div className="text-cyan-600 font-black text-lg">
-                            {total} DT
                           </div>
                         </div>
-
-                        <div className="ml-13 mt-2 flex flex-wrap gap-2">
-                          {records
-                            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                            .map((record: any, idx: number) => (
-                              <span key={idx} className="text-xs text-[#6b5744] bg-white px-2 py-1 rounded border border-[#c9b896]/30">
-                                {format(new Date(record.date), 'dd MMM yyyy', { locale: fr })}
-                              </span>
-                            ))}
-                        </div>
-                      </div>
-                    ))
+                      )
+                    })
                   )}
                 </div>
 
@@ -1528,62 +1583,88 @@ export default function PayrollPage() {
           </DialogHeader>
 
           {(() => {
-            // Group extras by user
-            const groupedByUser = new Map<string, { user: any, records: any[], total: number }>();
-
-            filteredExtrasList.forEach((record: any) => {
-              const userId = String(record.user_id);
-              if (!groupedByUser.has(userId)) {
-                const user = usersMap.get(userId);
-                groupedByUser.set(userId, { user, records: [], total: 0 });
-              }
-              const group = groupedByUser.get(userId)!;
-              group.records.push(record);
-              group.total += record.montant;
-            });
-
             const localTotal = filteredExtrasList.reduce((acc: number, e: any) => acc + e.montant, 0);
 
             return (
               <>
                 <div className="mt-4 space-y-3 max-h-[400px] overflow-y-auto pr-2">
-                  {groupedByUser.size === 0 ? (
+                  {filteredExtrasList.length === 0 ? (
                     <div className="text-center py-8 text-[#6b5744]">Aucun extra trouvé</div>
                   ) : (
-                    Array.from(groupedByUser.values()).map(({ user, records, total }) => (
-                      <div key={user?.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
-                              {user?.photo ? (
-                                <img src={user.photo} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
-                                  {user?.username?.charAt(0) || "?"}
+                    filteredExtrasList.map((record: any) => {
+                      const user = usersMap.get(String(record.user_id));
+                      return (
+                        <div key={record.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
+                                {user?.photo ? (
+                                  <img src={user.photo} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
+                                    {user?.username?.charAt(0) || "?"}
+                                  </div>
+                                )}
+                              </div>
+                              <div>
+                                <p className="font-bold text-[#3d2c1e] text-sm">{user?.username || "Inconnu"}</p>
+                                <p className="text-[10px] text-[#6b5744]">{format(new Date(record.date_extra), 'dd MMM yyyy', { locale: fr })}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {editingExtraId === record.id ? (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="date"
+                                    className="h-8 text-xs border rounded px-1"
+                                    value={editExtraDate ? format(editExtraDate, 'yyyy-MM-dd') : ''}
+                                    onChange={(e) => setEditExtraDate(e.target.valueAsDate || undefined)}
+                                  />
+                                  <Input
+                                    type="number"
+                                    value={editExtraAmount}
+                                    onChange={(e) => setEditExtraAmount(e.target.value)}
+                                    className="h-8 w-20 text-xs"
+                                  />
+                                  <Button size="sm" onClick={() => handleUpdateExtra(record.id)} className="h-8 bg-black text-white px-2">OK</Button>
+                                  <Button size="sm" variant="ghost" onClick={() => { setEditingExtraId(null); setEditExtraDate(undefined); }} className="h-8 px-2">X</Button>
                                 </div>
+                              ) : (
+                                <>
+                                  <div className="text-emerald-600 font-black text-sm mr-2">
+                                    {record.montant.toLocaleString()} DT
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setEditingExtraId(record.id);
+                                      setEditExtraAmount(record.montant.toString());
+                                      setEditExtraDate(new Date(record.date_extra));
+                                    }}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <RotateCcw className="h-4 w-4 text-blue-600" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setDeleteTargetId(record.id);
+                                      setDeleteType("extra");
+                                      setDeleteConfirmOpen(true);
+                                    }}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <XCircle className="h-4 w-4 text-red-600" />
+                                  </Button>
+                                </>
                               )}
                             </div>
-                            <div className="flex-1">
-                              <p className="font-bold text-[#3d2c1e] text-sm">{user?.username || "Inconnu"}</p>
-                              <p className="text-[10px] text-[#6b5744]">Dates travaillées:</p>
-                            </div>
-                          </div>
-                          <div className="text-emerald-600 font-black text-lg">
-                            {total} DT
                           </div>
                         </div>
-
-                        <div className="ml-13 mt-2 flex flex-wrap gap-2">
-                          {records
-                            .sort((a, b) => new Date(b.date_extra).getTime() - new Date(a.date_extra).getTime())
-                            .map((record: any, idx: number) => (
-                              <span key={idx} className="text-xs text-[#6b5744] bg-white px-2 py-1 rounded border border-[#c9b896]/30">
-                                {format(new Date(record.date_extra), 'dd MMM yyyy', { locale: fr })}
-                              </span>
-                            ))}
-                        </div>
-                      </div>
-                    ))
+                      )
+                    })
                   )}
                 </div>
 
@@ -1621,62 +1702,87 @@ export default function PayrollPage() {
           </DialogHeader>
 
           {(() => {
-            // Group primes by user
-            const groupedByUser = new Map<string, { user: any, records: any[], total: number }>();
-
-            filteredPrimesList.forEach((record: any) => {
-              const userId = String(record.user_id);
-              if (!groupedByUser.has(userId)) {
-                const user = usersMap.get(userId);
-                groupedByUser.set(userId, { user, records: [], total: 0 });
-              }
-              const group = groupedByUser.get(userId)!;
-              group.records.push(record);
-              group.total += record.montant;
-            });
-
             const localTotal = filteredPrimesList.reduce((acc: number, e: any) => acc + e.montant, 0);
 
             return (
               <>
                 <div className="mt-4 space-y-3 max-h-[400px] overflow-y-auto pr-2">
-                  {groupedByUser.size === 0 ? (
+                  {filteredPrimesList.length === 0 ? (
                     <div className="text-center py-8 text-[#6b5744]">Aucune prime trouvée</div>
                   ) : (
-                    Array.from(groupedByUser.values()).map(({ user, records, total }) => (
-                      <div key={user?.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
-                              {user?.photo ? (
-                                <img src={user.photo} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
-                                  {user?.username?.charAt(0) || "?"}
+                    filteredPrimesList.map((record: any) => {
+                      const user = usersMap.get(String(record.user_id));
+                      return (
+                        <div key={record.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
+                                {user?.photo ? (
+                                  <img src={user.photo} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
+                                    {user?.username?.charAt(0) || "?"}
+                                  </div>
+                                )}
+                              </div>
+                              <div>
+                                <p className="font-bold text-[#3d2c1e] text-sm">{user?.username || "Inconnu"}</p>
+                                <p className="text-[10px] text-[#6b5744]">{format(new Date(record.date_extra), 'dd MMM yyyy', { locale: fr })}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {editingExtraId === record.id ? (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="date"
+                                    className="h-8 text-xs border rounded px-1"
+                                    value={editExtraDate ? format(editExtraDate, 'yyyy-MM-dd') : ''}
+                                    onChange={(e) => setEditExtraDate(e.target.valueAsDate || undefined)}
+                                  />
+                                  <Input
+                                    type="number"
+                                    value={editExtraAmount}
+                                    onChange={(e) => setEditExtraAmount(e.target.value)}
+                                    className="h-8 w-20 text-xs"
+                                  />
+                                  <Button size="sm" onClick={() => handleUpdateExtra(record.id)} className="h-8 bg-black text-white px-2">OK</Button>
+                                  <Button size="sm" variant="ghost" onClick={() => { setEditingExtraId(null); setEditExtraDate(undefined); }} className="h-8 px-2">X</Button>
                                 </div>
+                              ) : (
+                                <>
+                                  <div className="text-amber-600 font-black text-sm mr-2">
+                                    {record.montant.toLocaleString()} DT
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setEditingExtraId(record.id);
+                                      setEditExtraAmount(record.montant.toString());
+                                      setEditExtraDate(new Date(record.date_extra));
+                                    }}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <RotateCcw className="h-4 w-4 text-blue-600" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setDeleteTargetId(record.id);
+                                      setDeleteConfirmOpen(true);
+                                    }}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <XCircle className="h-4 w-4 text-red-600" />
+                                  </Button>
+                                </>
                               )}
                             </div>
-                            <div className="flex-1">
-                              <p className="font-bold text-[#3d2c1e] text-sm">{user?.username || "Inconnu"}</p>
-                              <p className="text-[10px] text-[#6b5744]">Dates travaillées:</p>
-                            </div>
-                          </div>
-                          <div className="text-amber-600 font-black text-lg">
-                            {total} DT
                           </div>
                         </div>
-
-                        <div className="ml-13 mt-2 flex flex-wrap gap-2">
-                          {records
-                            .sort((a, b) => new Date(b.date_extra).getTime() - new Date(a.date_extra).getTime())
-                            .map((record: any, idx: number) => (
-                              <span key={idx} className="text-xs text-[#6b5744] bg-white px-2 py-1 rounded border border-[#c9b896]/30">
-                                {format(new Date(record.date_extra), 'dd MMM yyyy', { locale: fr })}
-                              </span>
-                            ))}
-                        </div>
-                      </div>
-                    ))
+                      )
+                    })
                   )}
                 </div>
 
@@ -1765,6 +1871,232 @@ export default function PayrollPage() {
               </>
             );
           })()}
+        </DialogContent>
+      </Dialog>
+
+
+      {/* Grouped Doublages List Dialog (Summary View) */}
+      <Dialog open={listeDoublageOpen} onOpenChange={setListeDoublageOpen}>
+        <DialogContent className="bg-white border-[#c9b896] sm:max-w-[500px] rounded-2xl p-6 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-[#8b5a2b] flex items-center gap-2">
+              <Layers className="h-5 w-5 text-cyan-600" /> Liste des Doublages
+            </DialogTitle>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <p className="text-sm text-[#6b5744]">Doublages groupés par employé</p>
+              <Select value={viewDoublagesSelectedDepartment} onValueChange={setViewDoublagesSelectedDepartment}>
+                <SelectTrigger className="h-8 w-[140px] text-xs bg-[#f8f6f1] border-[#c9b896]">
+                  <SelectValue placeholder="Département" />
+                </SelectTrigger>
+                <SelectContent className="bg-white border-[#c9b896]">
+                  <SelectItem value="all">Tous les dép.</SelectItem>
+                  {departments.map((dep: any) => (
+                    <SelectItem key={dep} value={dep}>{dep}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </DialogHeader>
+          <div className="mt-4 space-y-3 max-h-[400px] overflow-y-auto pr-2">
+            {(() => {
+              const groupedByUser = new Map<string, { user: any, records: any[], total: number }>();
+              filteredDoublagesList.forEach((record: any) => {
+                const userId = String(record.user_id);
+                if (!groupedByUser.has(userId)) {
+                  groupedByUser.set(userId, { user: users.find((u: any) => u.id === record.user_id), records: [], total: 0 });
+                }
+                const group = groupedByUser.get(userId)!;
+                group.records.push(record);
+                group.total += record.montant;
+              });
+
+              if (groupedByUser.size === 0) return <div className="text-center py-8 text-[#6b5744]">Aucun doublage trouvé</div>;
+
+              return Array.from(groupedByUser.values()).map(({ user, records, total }) => (
+                <div key={user?.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
+                        {user?.photo ? (
+                          <img src={user.photo} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
+                            {user?.username?.charAt(0)}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-[#3d2c1e] text-sm">{user?.username}</p>
+                        <p className="text-[10px] text-[#6b5744]">Dates travaillées:</p>
+                      </div>
+                    </div>
+                    <div className="text-cyan-600 font-black text-lg">{total} DT</div>
+                  </div>
+                  <div className="ml-13 mt-2 flex flex-wrap gap-2">
+                    {records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((record: any, idx: number) => (
+                      <span key={idx} className="text-xs text-[#6b5744] bg-white px-2 py-1 rounded border border-[#c9b896]/30">
+                        {format(new Date(record.date), 'dd/MM/yyyy', { locale: fr })}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+          <div className="mt-6 pt-4 border-t border-[#c9b896]/30 flex justify-between items-center font-black text-[#8b5a2b]">
+            <span>TOTAL GLOBAL</span>
+            <span className="text-xl text-cyan-700">{Math.round(filteredDoublagesList.reduce((acc: number, d: any) => acc + d.montant, 0)).toLocaleString()} DT</span>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Grouped Extras List Dialog (Summary View) */}
+      <Dialog open={listeExtrasOpen} onOpenChange={setListeExtrasOpen}>
+        <DialogContent className="bg-white border-[#c9b896] sm:max-w-[500px] rounded-2xl p-6 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-[#8b5a2b] flex items-center gap-2">
+              <Award className="h-5 w-5 text-emerald-600" /> Liste des Extras
+            </DialogTitle>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <p className="text-sm text-[#6b5744]">Extras groupés par employé</p>
+              <Select value={viewExtrasSelectedDepartment} onValueChange={setViewExtrasSelectedDepartment}>
+                <SelectTrigger className="h-8 w-[140px] text-xs bg-[#f8f6f1] border-[#c9b896]">
+                  <SelectValue placeholder="Département" />
+                </SelectTrigger>
+                <SelectContent className="bg-white border-[#c9b896]">
+                  <SelectItem value="all">Tous les dép.</SelectItem>
+                  {departments.map((dep: any) => (
+                    <SelectItem key={dep} value={dep}>{dep}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </DialogHeader>
+          <div className="mt-4 space-y-3 max-h-[400px] overflow-y-auto pr-2">
+            {(() => {
+              const groupedByUser = new Map<string, { user: any, records: any[], total: number }>();
+              filteredExtrasList.forEach((record: any) => {
+                const userId = String(record.user_id);
+                if (!groupedByUser.has(userId)) {
+                  groupedByUser.set(userId, { user: usersMap.get(userId), records: [], total: 0 });
+                }
+                const group = groupedByUser.get(userId)!;
+                group.records.push(record);
+                group.total += record.montant;
+              });
+
+              if (groupedByUser.size === 0) return <div className="text-center py-8 text-[#6b5744]">Aucun extra trouvé</div>;
+
+              return Array.from(groupedByUser.values()).map(({ user, records, total }) => (
+                <div key={user?.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
+                        {user?.photo ? (
+                          <img src={user.photo} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
+                            {user?.username?.charAt(0) || "?"}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-[#3d2c1e] text-sm">{user?.username || "Inconnu"}</p>
+                        <p className="text-[10px] text-[#6b5744]">Dates travaillées:</p>
+                      </div>
+                    </div>
+                    <div className="text-emerald-600 font-black text-lg">{total} DT</div>
+                  </div>
+                  <div className="ml-13 mt-2 flex flex-wrap gap-2">
+                    {records.sort((a, b) => new Date(b.date_extra).getTime() - new Date(a.date_extra).getTime()).map((record: any, idx: number) => (
+                      <span key={idx} className="text-xs text-[#6b5744] bg-white px-2 py-1 rounded border border-[#c9b896]/30">
+                        {format(new Date(record.date_extra), 'dd/MM/yyyy', { locale: fr })}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+          <div className="mt-6 pt-4 border-t border-[#c9b896]/30 flex justify-between items-center font-black text-[#8b5a2b]">
+            <span>TOTAL GLOBAL</span>
+            <span className="text-xl text-emerald-700">{Math.round(filteredExtrasList.reduce((acc: number, e: any) => acc + e.montant, 0)).toLocaleString()} DT</span>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Grouped Primes List Dialog (Summary View) */}
+      <Dialog open={listePrimesOpen} onOpenChange={setListePrimesOpen}>
+        <DialogContent className="bg-white border-[#c9b896] sm:max-w-[500px] rounded-2xl p-6 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-[#8b5a2b] flex items-center gap-2">
+              <Award className="h-5 w-5 text-amber-600" /> Liste des Primes
+            </DialogTitle>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <p className="text-sm text-[#6b5744]">Primes groupées par employé</p>
+              <Select value={viewPrimesSelectedDepartment} onValueChange={setViewPrimesSelectedDepartment}>
+                <SelectTrigger className="h-8 w-[140px] text-xs bg-[#f8f6f1] border-[#c9b896]">
+                  <SelectValue placeholder="Département" />
+                </SelectTrigger>
+                <SelectContent className="bg-white border-[#c9b896]">
+                  <SelectItem value="all">Tous les dép.</SelectItem>
+                  {departments.map((dep: any) => (
+                    <SelectItem key={dep} value={dep}>{dep}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </DialogHeader>
+          <div className="mt-4 space-y-3 max-h-[400px] overflow-y-auto pr-2">
+            {(() => {
+              const groupedByUser = new Map<string, { user: any, records: any[], total: number }>();
+              filteredPrimesList.forEach((record: any) => {
+                const userId = String(record.user_id);
+                if (!groupedByUser.has(userId)) {
+                  groupedByUser.set(userId, { user: usersMap.get(userId), records: [], total: 0 });
+                }
+                const group = groupedByUser.get(userId)!;
+                group.records.push(record);
+                group.total += record.montant;
+              });
+
+              if (groupedByUser.size === 0) return <div className="text-center py-8 text-[#6b5744]">Aucune prime trouvée</div>;
+
+              return Array.from(groupedByUser.values()).map(({ user, records, total }) => (
+                <div key={user?.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
+                        {user?.photo ? (
+                          <img src={user.photo} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
+                            {user?.username?.charAt(0) || "?"}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-[#3d2c1e] text-sm">{user?.username || "Inconnu"}</p>
+                        <p className="text-[10px] text-[#6b5744]">Dates travaillées:</p>
+                      </div>
+                    </div>
+                    <div className="text-amber-600 font-black text-lg">{total} DT</div>
+                  </div>
+                  <div className="ml-13 mt-2 flex flex-wrap gap-2">
+                    {records.sort((a, b) => new Date(b.date_extra).getTime() - new Date(a.date_extra).getTime()).map((record: any, idx: number) => (
+                      <span key={idx} className="text-xs text-[#6b5744] bg-white px-2 py-1 rounded border border-[#c9b896]/30">
+                        {format(new Date(record.date_extra), 'dd/MM/yyyy', { locale: fr })}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+          <div className="mt-6 pt-4 border-t border-[#c9b896]/30 flex justify-between items-center font-black text-[#8b5a2b]">
+            <span>TOTAL GLOBAL</span>
+            <span className="text-xl text-amber-700">{Math.round(filteredPrimesList.reduce((acc: number, e: any) => acc + e.montant, 0)).toLocaleString()} DT</span>
+          </div>
         </DialogContent>
       </Dialog>
 
