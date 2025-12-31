@@ -24,7 +24,8 @@ import {
   RotateCcw,
   XCircle,
 } from "lucide-react"
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useCallback } from "react"
+import { PayrollListView } from "./PayrollListView"
 import { useSearchParams, useRouter } from "next/navigation"
 import { NotificationBell } from "@/components/notification-bell"
 import { getCurrentUser } from "@/lib/mock-data"
@@ -36,8 +37,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar"
 
 // GraphQL Definitions
-const GET_PAYROLL_PAGE = gql`
-  query GetPayrollPage($month: String!) {
+const GET_CORE_DATA = gql`
+  query GetCoreData {
     getUsers {
       id
       username
@@ -47,6 +48,21 @@ const GET_PAYROLL_PAGE = gql`
       is_blocked
       nbmonth
     }
+    getAllSchedules {
+      user_id
+      dim
+      lun
+      mar
+      mer
+      jeu
+      ven
+      sam
+    }
+  }
+`
+
+const GET_PAYROLL_DATA = gql`
+  query GetPayrollData($month: String!) {
     getPayroll(month: $month) {
       id
       user_id
@@ -62,16 +78,11 @@ const GET_PAYROLL_PAGE = gql`
       doublage
       paid
     }
-    getAllSchedules {
-      user_id
-      dim
-      lun
-      mar
-      mer
-      jeu
-      ven
-      sam
-    }
+  }
+`
+
+const GET_LISTS_DATA = gql`
+  query GetListsData($month: String!) {
     getExtras(month: $month) {
       id
       user_id
@@ -98,12 +109,29 @@ const ADD_EXTRA = gql`
 `
 
 const UPDATE_EXTRA = gql`
-  mutation UpdateExtra($id: ID!, $montant: Float, $motif: String) {
-    updateExtra(id: $id, montant: $montant, motif: $motif) {
+  mutation UpdateExtra($id: ID!, $montant: Float, $motif: String, $date_extra: String) {
+    updateExtra(id: $id, montant: $montant, motif: $motif, date_extra: $date_extra) {
       id
       montant
       motif
+      date_extra
     }
+  }
+`
+
+const UPDATE_DOUBLAGE = gql`
+  mutation UpdateDoublage($id: ID!, $montant: Float, $date: String) {
+    updateDoublage(id: $id, montant: $montant, date: $date) {
+      id
+      montant
+      date
+    }
+  }
+`
+
+const DELETE_DOUBLAGE = gql`
+  mutation DeleteDoublage($id: ID!) {
+    deleteDoublage(id: $id)
   }
 `
 
@@ -198,10 +226,25 @@ export default function PayrollPage() {
   const [selectedMonth, setSelectedMonth] = useState(new Date())
   const payrollMonthKey = format(selectedMonth, "yyyy_MM")
 
-  const { data, loading, refetch } = useQuery(GET_PAYROLL_PAGE, {
+  const { data: coreData, refetch: refetchCore } = useQuery(GET_CORE_DATA, {
+    fetchPolicy: "cache-and-network"
+  })
+
+  const { data: payrollData, loading: payrollLoading, refetch: refetchPayroll } = useQuery(GET_PAYROLL_DATA, {
     variables: { month: payrollMonthKey },
     fetchPolicy: "cache-and-network"
   })
+
+  const { data: listsData, loading: listsLoading, refetch: refetchLists } = useQuery(GET_LISTS_DATA, {
+    variables: { month: payrollMonthKey },
+    fetchPolicy: "cache-and-network"
+  })
+
+  const loading = payrollLoading || listsLoading
+
+  const refetch = async () => {
+    return Promise.all([refetchPayroll(), refetchLists(), refetchCore()])
+  }
 
 
 
@@ -212,11 +255,11 @@ export default function PayrollPage() {
     try { permissions = JSON.parse(currentUser.permissions); } catch (e) { }
   }
 
-  const canSee = (cat: string, key: string) => {
+  const canSee = useCallback((cat: string, key: string) => {
     if (currentUser?.role === 'admin') return true;
     if (!permissions[cat]) return true;
     return permissions[cat][key] !== false;
-  }
+  }, [currentUser, permissions])
 
   // Polling removed as per user request
 
@@ -226,19 +269,19 @@ export default function PayrollPage() {
   // Warning: If we init automatically, we might overwrite?
   // Usually initPayroll checks if exists. 
   useEffect(() => {
-    if (data?.getPayroll && data.getPayroll.length === 0 && !loading && data?.getUsers?.length > 0) {
+    if (payrollData?.getPayroll && payrollData.getPayroll.length === 0 && !loading && coreData?.getUsers?.length > 0) {
       // Only init if we have users but no payroll
       initPayroll({ variables: { month: payrollMonthKey } }).then(() => refetch().catch(console.error)).catch(console.error)
     }
-  }, [data, loading, payrollMonthKey, initPayroll, refetch])
+  }, [payrollData, loading, coreData, payrollMonthKey, initPayroll])
 
   const users = useMemo(() => {
-    if (!data?.getUsers) return [];
-    return data.getUsers.filter((u: any) => !u.is_blocked);
-  }, [data]);
-  const payrollRecords = useMemo(() => data?.getPayroll || [], [data]);
-  const schedules = useMemo(() => data?.getAllSchedules || [], [data]);
-  const extrasList = useMemo(() => data?.getExtras || [], [data]);
+    if (!coreData?.getUsers) return [];
+    return coreData.getUsers.filter((u: any) => !u.is_blocked);
+  }, [coreData]);
+  const payrollRecords = useMemo(() => payrollData?.getPayroll || [], [payrollData]);
+  const schedules = useMemo(() => coreData?.getAllSchedules || [], [coreData]);
+  const extrasList = useMemo(() => listsData?.getExtras || [], [listsData]);
 
   const usersMap = useMemo(() => {
     const map = new Map<string, any>();
@@ -348,7 +391,7 @@ export default function PayrollPage() {
     }, 200);
 
     return () => clearInterval(interval);
-  }, [userIdParam, data?.personnelStatus]);
+  }, [userIdParam, payrollData?.personnelStatus]);
 
   // Extra Dialog Filters
   const [extraSearchTerm, setExtraSearchTerm] = useState("")
@@ -380,11 +423,20 @@ export default function PayrollPage() {
   const [unpayUser, { loading: unpayingUser }] = useMutation(UNPAY_USER)
   const [updateExtra] = useMutation(UPDATE_EXTRA)
   const [deleteExtra] = useMutation(DELETE_EXTRA)
+  const [updateDoublage] = useMutation(UPDATE_DOUBLAGE)
+  const [deleteDoublage] = useMutation(DELETE_DOUBLAGE)
 
   const [editingExtraId, setEditingExtraId] = useState<string | null>(null)
   const [editExtraAmount, setEditExtraAmount] = useState("")
+  const [editExtraDate, setEditExtraDate] = useState<Date | undefined>(undefined)
+
+  const [editingDoublageId, setEditingDoublageId] = useState<string | null>(null)
+  const [editDoublageAmount, setEditDoublageAmount] = useState("")
+  const [editDoublageDate, setEditDoublageDate] = useState<Date | undefined>(undefined)
+
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
+  const [deleteType, setDeleteType] = useState<"extra" | "doublage">("extra")
 
   const handleAddExtra = async () => {
     if (!extraUserId || !extraAmount || !extraDate) return
@@ -457,12 +509,14 @@ export default function PayrollPage() {
       await updateExtra({
         variables: {
           id,
-          montant: parseFloat(editExtraAmount)
+          montant: parseFloat(editExtraAmount),
+          date_extra: editExtraDate ? format(editExtraDate, 'yyyy-MM-dd') : undefined
         }
       })
       await refetch()
       setEditingExtraId(null)
       setEditExtraAmount("")
+      setEditExtraDate(undefined)
     } catch (error) {
       console.error("Error updating extra:", error)
     }
@@ -471,18 +525,43 @@ export default function PayrollPage() {
   const handleDeleteExtra = async () => {
     if (!deleteTargetId) return
     try {
-      await deleteExtra({
-        variables: { id: deleteTargetId }
-      })
+      if (deleteType === "extra") {
+        await deleteExtra({
+          variables: { id: deleteTargetId }
+        })
+      } else {
+        await deleteDoublage({
+          variables: { id: deleteTargetId }
+        })
+      }
       await refetch()
       setDeleteConfirmOpen(false)
       setDeleteTargetId(null)
     } catch (error) {
-      console.error("Error deleting extra:", error)
+      console.error("Error deleting item:", error)
     }
   }
 
-  const handlePayUser = async (userId: string) => {
+  const handleUpdateDoublage = async (id: string) => {
+    if (!editDoublageAmount) return
+    try {
+      await updateDoublage({
+        variables: {
+          id,
+          montant: parseFloat(editDoublageAmount),
+          date: editDoublageDate ? format(editDoublageDate, 'yyyy-MM-dd') : undefined
+        }
+      })
+      await refetch()
+      setEditingDoublageId(null)
+      setEditDoublageAmount("")
+      setEditDoublageDate(undefined)
+    } catch (error) {
+      console.error("Error updating doublage:", error)
+    }
+  }
+
+  const handlePayUser = useCallback(async (userId: string) => {
     try {
       await payUser({
         variables: {
@@ -494,7 +573,7 @@ export default function PayrollPage() {
     } catch (error) {
       console.error("Error paying user:", error)
     }
-  }
+  }, [payUser, payrollMonthKey, refetch])
 
   const handleUnpayUser = async () => {
     if (!unpayTargetId) return
@@ -513,10 +592,10 @@ export default function PayrollPage() {
     }
   }
 
-  const openEmployeePlanning = (userData: any) => {
+  const openEmployeePlanning = useCallback((userData: any) => {
     setSelectedEmployee(userData)
     setPlanningDialogOpen(true)
-  }
+  }, [])
 
   const navigateMonth = (direction: "prev" | "next") => {
     setSelectedMonth((prev) => {
@@ -605,6 +684,41 @@ export default function PayrollPage() {
     const deps = new Set(users.map((u: any) => u.departement).filter(Boolean))
     return Array.from(deps)
   }, [users])
+
+  // Memoized Lists for Modals
+  const filteredDoublagesList = useMemo(() => {
+    const doublageList = listsData?.getDoublages || [];
+    return doublageList.filter((d: any) => {
+      const user = usersMap.get(String(d.user_id));
+      const userDep = user?.departement || "Autre";
+      if (viewDoublagesSelectedDepartment !== "all" && userDep !== viewDoublagesSelectedDepartment) {
+        return false;
+      }
+      return true;
+    });
+  }, [listsData?.getDoublages, viewDoublagesSelectedDepartment, usersMap]);
+
+  const filteredExtrasList = useMemo(() => {
+    const rawExtras = listsData?.getExtras || [];
+    return rawExtras.filter((e: any) => {
+      if ((e.motif || "Extra").toLowerCase() !== "extra") return false;
+      const user = usersMap.get(String(e.user_id));
+      const userDep = user?.departement || "Autre";
+      if (viewExtrasSelectedDepartment !== "all" && userDep !== viewExtrasSelectedDepartment) return false;
+      return true;
+    });
+  }, [listsData?.getExtras, viewExtrasSelectedDepartment, usersMap]);
+
+  const filteredPrimesList = useMemo(() => {
+    const rawExtras = listsData?.getExtras || [];
+    return rawExtras.filter((e: any) => {
+      if ((e.motif || "").toLowerCase() !== "prime") return false;
+      const user = usersMap.get(String(e.user_id));
+      const userDep = user?.departement || "Autre";
+      if (viewPrimesSelectedDepartment !== "all" && userDep !== viewPrimesSelectedDepartment) return false;
+      return true;
+    });
+  }, [listsData?.getExtras, viewPrimesSelectedDepartment, usersMap]);
 
   return (
     <div className="flex h-screen overflow-hidden flex-col bg-[#f8f6f1] lg:flex-row">
@@ -972,33 +1086,33 @@ export default function PayrollPage() {
               onClick={() => setViewPaidOpen(true)}
             >
               <p className="text-sm text-green-700 font-semibold">Total Payé {selectedDepartment !== "all" ? `(${selectedDepartment})` : (searchTerm ? "(Filtré)" : "")}</p>
-              <p className="text-2xl font-bold text-green-600">{globalStats.totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DT</p>
+              <p className="text-2xl font-bold text-green-700">{globalStats.totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DT</p>
             </Card>
             {canSee('payroll', 'stats_primes') && (
               <Card
-                className="border-[#c9b896] bg-white p-4 shadow-md cursor-pointer hover:bg-[#f8f6f1] transition-colors"
+                className="border-amber-500 bg-amber-50 p-4 shadow-md cursor-pointer hover:bg-amber-100 transition-colors"
                 onClick={() => setViewPrimesOpen(true)}
               >
-                <p className="text-sm text-[#6b5744]">Total Primes {selectedDepartment !== "all" ? `(${selectedDepartment})` : (searchTerm ? "(Filtré)" : "")}</p>
-                <p className="text-2xl font-bold text-amber-600">{Math.round(globalStats.totalPrimes)} DT</p>
+                <p className="text-sm text-amber-700 font-semibold">Total Primes</p>
+                <p className="text-2xl font-bold text-amber-700">{Math.round(globalStats.totalPrimes)} DT</p>
               </Card>
             )}
             {canSee('payroll', 'stats_extras') && (
               <Card
-                className="border-[#c9b896] bg-white p-4 shadow-md cursor-pointer hover:bg-[#f8f6f1] transition-colors"
+                className="border-emerald-500 bg-emerald-50 p-4 shadow-md cursor-pointer hover:bg-emerald-100 transition-colors"
                 onClick={() => setViewExtrasOpen(true)}
               >
-                <p className="text-sm text-[#6b5744]">Total Extras {selectedDepartment !== "all" ? `(${selectedDepartment})` : (searchTerm ? "(Filtré)" : "")}</p>
-                <p className="text-2xl font-bold text-emerald-600">{Math.round(globalStats.totalExtras)} DT</p>
+                <p className="text-sm text-emerald-700 font-semibold">Total Extras</p>
+                <p className="text-2xl font-bold text-emerald-700">{Math.round(globalStats.totalExtras)} DT</p>
               </Card>
             )}
             {canSee('payroll', 'stats_doublages') && (
               <Card
-                className="border-[#c9b896] bg-white p-4 shadow-md cursor-pointer hover:bg-[#f8f6f1] transition-colors"
+                className="border-cyan-500 bg-cyan-50 p-4 shadow-md cursor-pointer hover:bg-cyan-100 transition-colors"
                 onClick={() => setViewDoublagesOpen(true)}
               >
-                <p className="text-sm text-[#6b5744]">Total Doublages {selectedDepartment !== "all" ? `(${selectedDepartment})` : (searchTerm ? "(Filtré)" : "")}</p>
-                <p className="text-2xl font-bold text-cyan-600">{Math.round(globalStats.totalDoublages)} DT</p>
+                <p className="text-sm text-cyan-700 font-semibold">Total Doublages</p>
+                <p className="text-2xl font-bold text-cyan-700">{Math.round(globalStats.totalDoublages)} DT</p>
               </Card>
             )}
           </div>
@@ -1026,6 +1140,12 @@ export default function PayrollPage() {
               >
                 Liste Extras
               </Button>
+              <Button
+                onClick={() => setViewDoublagesOpen(true)}
+                className="bg-cyan-100 text-cyan-700 hover:bg-cyan-200 border border-cyan-200 shadow-sm font-bold"
+              >
+                Liste Doublage
+              </Button>
             </div>
             <div className="w-full sm:w-56">
               <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
@@ -1042,205 +1162,16 @@ export default function PayrollPage() {
             </div>
           </div>
 
-          <Card className="border-[#c9b896] bg-white shadow-md bg-transparent border-0 shadow-none md:bg-white md:border md:shadow-md">
-            <div className="overflow-x-auto hidden md:block">
-              <table className="w-full min-w-[800px]">
-                <thead className="bg-[#f8f6f1]">
-                  <tr>
-                    <th className="p-4 text-left font-semibold text-[#6b5744]">Employé</th>
-                    {canSee('payroll', 'col_base') && <th className="p-4 text-left font-semibold text-[#6b5744]">Base</th>}
-                    {canSee('payroll', 'col_abs_days') && <th className="p-4 text-left font-semibold text-[#6b5744]">Jours Abs</th>}
-                    {canSee('payroll', 'col_primes') && <th className="p-4 text-left font-semibold text-[#6b5744]">Primes</th>}
-                    {canSee('payroll', 'col_extra') && <th className="p-4 text-left font-semibold text-[#6b5744]">Extra</th>}
-                    {canSee('payroll', 'col_doublage') && <th className="p-4 text-left font-semibold text-[#6b5744]">Doublage</th>}
-                    {canSee('payroll', 'col_retenues') && <th className="p-4 text-left font-semibold text-[#6b5744]">Retenues</th>}
-                    {canSee('payroll', 'col_avance') && <th className="p-4 text-left font-semibold text-[#6b5744]">Avance</th>}
-                    {canSee('payroll', 'col_net') && <th className="p-4 text-left font-semibold text-[#6b5744]">Net</th>}
-                    {canSee('payroll', 'col_action') && <th className="p-4 text-left font-semibold text-[#6b5744]">Action</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredPayrollSummary.map((p: any) => (
-                    <tr key={p.userId} id={`payroll-desktop-${p.userId}`} className={cn("border-b border-[#c9b896]/30 hover:bg-[#f8f6f1]/50", p.isPaid && "!bg-green-300 !border-green-500")}>
-
-                      <td className="p-4">
-                        <button
-                          onClick={() => canSee('payroll', 'user_details_modal') && openEmployeePlanning(p)}
-                          className={`flex items-center gap-3 text-left ${!canSee('payroll', 'user_details_modal') ? 'cursor-default opacity-100' : ''}`}
-                          disabled={!canSee('payroll', 'user_details_modal')}
-                        >
-                          <div className="h-10 w-10 rounded-full bg-[#8b5a2b] flex items-center justify-center text-white font-bold overflow-hidden border border-[#c9b896]/30">
-                            {p.user.photo ? (
-                              <img src={p.user.photo} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              p.user.username?.charAt(0)
-                            )}
-                          </div>
-                          <div>
-                            <p className="font-semibold text-[#3d2c1e]">{p.user.username}</p>
-                            <p className="text-xs text-[#6b5744]">{p.user.departement}</p>
-                          </div>
-                        </button>
-                      </td>
-                      {canSee('payroll', 'col_base') && <td className="p-4 font-medium text-[#3d2c1e]">{p.baseSalary.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>}
-                      {canSee('payroll', 'col_abs_days') && <td className="p-4 text-red-600 font-bold">{p.absentDays}</td>}
-                      {canSee('payroll', 'col_primes') && <td className="p-4 text-emerald-600">+{Math.round(p.totalPrimes)}</td>}
-                      {canSee('payroll', 'col_extra') && <td className="p-4 text-emerald-600">+{Math.round(p.totalExtras)}</td>}
-                      {canSee('payroll', 'col_doublage') && <td className="p-4 text-cyan-600">+{Math.round(p.totalDoublages)}</td>}
-                      {canSee('payroll', 'col_retenues') && <td className="p-4 text-red-600">-{Math.round(p.totalInfractions)}</td>}
-                      {canSee('payroll', 'col_avance') && <td className="p-4 text-amber-600">-{Math.round(p.totalAdvances)}</td>}
-                      {canSee('payroll', 'col_net') && <td className="p-4 font-bold text-lg text-[#3d2c1e]">{p.netSalary.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DT</td>}
-                      {canSee('payroll', 'col_action') && (
-                        <td className="p-4">
-                          <div className="flex items-center gap-2">
-                            <Button
-                              size="sm"
-                              className={cn(
-                                "text-white transition-all shadow-sm",
-                                p.isPaid
-                                  ? "bg-emerald-700/50 hover:bg-emerald-700/60 cursor-default"
-                                  : "bg-emerald-600 hover:bg-emerald-700 active:scale-95"
-                              )}
-                              onClick={() => !p.isPaid && handlePayUser(p.userId)}
-                              disabled={payingUser || unpayingUser}
-                            >
-                              <CheckCircle2 className="mr-2 h-4 w-4" /> {p.isPaid ? "Payé" : "Payer"}
-                            </Button>
-                            {p.isPaid && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 h-9 w-9 p-0"
-                                onClick={() => {
-                                  setUnpayTargetId(p.userId)
-                                  setUnpayConfirmOpen(true)
-                                }}
-                                disabled={payingUser || unpayingUser}
-                                title="Annuler le paiement"
-                              >
-                                <RotateCcw className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile List View */}
-            <div className="md:hidden space-y-4">
-              {filteredPayrollSummary.map((p: any) => (
-                <div key={p.userId} id={`payroll-mobile-${p.userId}`} className={cn("bg-white border border-[#c9b896] rounded-xl p-4 shadow-sm flex flex-col gap-3", p.isPaid && "!bg-green-300 !border-green-500")}>
-
-                  <div className="flex items-center justify-between">
-                    <button
-                      onClick={() => canSee('payroll', 'user_details_modal') && openEmployeePlanning(p)}
-                      className={`flex items-center gap-3 text-left ${!canSee('payroll', 'user_details_modal') ? 'cursor-default' : ''}`}
-                      disabled={!canSee('payroll', 'user_details_modal')}
-                    >
-                      <div className="h-10 w-10 rounded-full bg-[#8b5a2b] flex items-center justify-center text-white font-bold overflow-hidden border border-[#c9b896]/30">
-                        {p.user.photo ? (
-                          <img src={p.user.photo} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          p.user.username?.charAt(0)
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-semibold text-[#3d2c1e]">{p.user.username}</p>
-                        <p className="text-xs text-[#6b5744]">{p.user.departement}</p>
-                      </div>
-                    </button>
-                    {canSee('payroll', 'col_net') && (
-                      <div className="text-right">
-                        <p className="text-xs text-[#6b5744]">Net à Payer</p>
-                        <p className="font-bold text-lg text-[#3d2c1e]">{Math.round(p.netSalary)} DT</p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 text-xs border-t border-[#c9b896]/30 pt-3">
-                    <div className="text-center">
-                      <p className="text-[#6b5744]">Présence</p>
-                      <p className="font-bold text-[#3d2c1e]">{p.presentDays}j</p>
-                    </div>
-                    {canSee('payroll', 'col_abs_days') && (
-                      <div className="text-center">
-                        <p className="text-[#6b5744]">Absence</p>
-                        <p className="font-bold text-red-600">{p.absentDays}j</p>
-                      </div>
-                    )}
-                    <div className="text-center">
-                      <p className="text-[#6b5744]">Retards</p>
-                      <p className="font-bold text-amber-600">{p.formattedRetard}</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    {canSee('payroll', 'col_extra') && (
-                      <div className="flex justify-between bg-emerald-50 p-2 rounded">
-                        <span className="text-emerald-700">Extra:</span>
-                        <span className="font-bold text-emerald-700">+{Math.round(p.totalExtras)}</span>
-                      </div>
-                    )}
-                    {canSee('payroll', 'col_avance') && (
-                      <div className="flex justify-between bg-amber-50 p-2 rounded">
-                        <span className="text-amber-700">Avance:</span>
-                        <span className="font-bold text-amber-700">-{Math.round(p.totalAdvances)}</span>
-                      </div>
-                    )}
-                    {canSee('payroll', 'col_doublage') && (
-                      <div className="flex justify-between bg-cyan-50 p-2 rounded">
-                        <span className="text-cyan-700">Doublage:</span>
-                        <span className="font-bold text-cyan-700">+{Math.round(p.totalDoublages)}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2">
-                    {canSee('payroll', 'user_details_modal') && (
-                      <Button onClick={() => openEmployeePlanning(p)} variant="outline" size="sm" className="flex-1 text-[#8b5a2b] border-[#8b5a2b]">
-                        Voir détails & Planning
-                      </Button>
-                    )}
-                    {canSee('payroll', 'col_action') && (
-                      <div className="flex gap-2 w-full">
-                        <Button
-                          size="sm"
-                          className={cn(
-                            "flex-1 text-white truncate",
-                            p.isPaid
-                              ? "bg-emerald-700/50 cursor-default"
-                              : "bg-emerald-600 hover:bg-emerald-700"
-                          )}
-                          onClick={() => !p.isPaid && handlePayUser(p.userId)}
-                          disabled={payingUser || unpayingUser}
-                        >
-                          <CheckCircle2 className="mr-2 h-4 w-4 shrink-0" /> {p.isPaid ? "Payé" : "Payer"}
-                        </Button>
-                        {p.isPaid && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="border-red-200 text-red-600 hover:bg-red-50 h-9 w-9 p-0 shrink-0"
-                            onClick={() => {
-                              setUnpayTargetId(p.userId)
-                              setUnpayConfirmOpen(true)
-                            }}
-                            disabled={payingUser || unpayingUser}
-                          >
-                            <RotateCcw className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
+          <PayrollListView
+            summary={filteredPayrollSummary}
+            canSee={canSee}
+            openEmployeePlanning={openEmployeePlanning}
+            handlePayUser={handlePayUser}
+            payingUser={payingUser}
+            unpayingUser={unpayingUser}
+            setUnpayTargetId={setUnpayTargetId}
+            setUnpayConfirmOpen={setUnpayConfirmOpen}
+          />
         </div>
       </main>
 
@@ -1504,71 +1435,59 @@ export default function PayrollPage() {
           </DialogHeader>
 
           {(() => {
-            const doublageList = data?.getDoublages || [];
+            // Group doublages by user
+            const groupedByUser = new Map<string, { user: any, records: any[], total: number }>();
 
-            // Aggregate and Filter
-            const userMap = new Map();
-            let localTotal = 0;
-
-            doublageList.forEach((d: any) => {
-              const user = users.find((u: any) => u.id === d.user_id);
-              const userDep = user?.departement || "Autre";
-
-              if (viewDoublagesSelectedDepartment !== "all" && userDep !== viewDoublagesSelectedDepartment) {
-                return;
+            filteredDoublagesList.forEach((record: any) => {
+              const userId = String(record.user_id);
+              if (!groupedByUser.has(userId)) {
+                const user = users.find((u: any) => u.id === record.user_id);
+                groupedByUser.set(userId, { user, records: [], total: 0 });
               }
-
-              if (!userMap.has(d.user_id)) {
-                userMap.set(d.user_id, {
-                  id: d.user_id,
-                  username: d.username,
-                  total: 0,
-                  dates: [],
-                  photo: user?.photo
-                });
-              }
-              const userEntry = userMap.get(d.user_id);
-              userEntry.total += d.montant;
-              userEntry.dates.push(d.date);
-              localTotal += d.montant;
+              const group = groupedByUser.get(userId)!;
+              group.records.push(record);
+              group.total += record.montant;
             });
 
-            const filteredUsers = Array.from(userMap.values());
+            const localTotal = filteredDoublagesList.reduce((acc: number, d: any) => acc + d.montant, 0);
 
             return (
               <>
                 <div className="mt-4 space-y-3 max-h-[400px] overflow-y-auto pr-2">
-                  {filteredUsers.length === 0 ? (
+                  {groupedByUser.size === 0 ? (
                     <div className="text-center py-8 text-[#6b5744]">Aucun doublage trouvé</div>
                   ) : (
-                    filteredUsers.map((entry: any) => (
-                      <div key={entry.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
+                    Array.from(groupedByUser.values()).map(({ user, records, total }) => (
+                      <div key={user?.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
-                              {entry.photo ? (
-                                <img src={entry.photo} alt="" className="w-full h-full object-cover" />
+                              {user?.photo ? (
+                                <img src={user.photo} alt="" className="w-full h-full object-cover" />
                               ) : (
                                 <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
-                                  {entry.username?.charAt(0)}
+                                  {user?.username?.charAt(0)}
                                 </div>
                               )}
                             </div>
-                            <div>
-                              <p className="font-bold text-[#3d2c1e] text-sm">{entry.username}</p>
+                            <div className="flex-1">
+                              <p className="font-bold text-[#3d2c1e] text-sm">{user?.username}</p>
+                              <p className="text-[10px] text-[#6b5744]">Dates travaillées:</p>
                             </div>
                           </div>
-                          <div className="text-cyan-600 font-black text-sm">
-                            {entry.total.toLocaleString()} DT
+                          <div className="text-cyan-600 font-black text-lg">
+                            {total} DT
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[#c9b896]/10">
-                          <span className="text-[9px] font-black uppercase text-[#6b5744]/50 w-full mb-1">Dates travaillées:</span>
-                          {entry.dates.map((d: string, i: number) => (
-                            <span key={i} className="px-2 py-0.5 rounded-full bg-white border border-[#c9b896]/30 text-[10px] font-bold text-[#3d2c1e] shadow-sm">
-                              {format(new Date(d), 'dd MMM yyyy', { locale: fr })}
-                            </span>
-                          ))}
+
+                        <div className="ml-13 mt-2 flex flex-wrap gap-2">
+                          {records
+                            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                            .map((record: any, idx: number) => (
+                              <span key={idx} className="text-xs text-[#6b5744] bg-white px-2 py-1 rounded border border-[#c9b896]/30">
+                                {format(new Date(record.date), 'dd MMM yyyy', { locale: fr })}
+                              </span>
+                            ))}
                         </div>
                       </div>
                     ))
@@ -1576,7 +1495,7 @@ export default function PayrollPage() {
                 </div>
 
                 <div className="mt-6 pt-4 border-t border-[#c9b896]/30 flex justify-between items-center font-black text-[#8b5a2b]">
-                  <span>TOTAL {viewDoublagesSelectedDepartment === "all" ? "GLOBAL" : viewDoublagesSelectedDepartment.toUpperCase()}</span>
+                  <span>TOTAL GLOBAL</span>
                   <span className="text-xl text-cyan-700">{Math.round(localTotal).toLocaleString()} DT</span>
                 </div>
               </>
@@ -1609,95 +1528,67 @@ export default function PayrollPage() {
           </DialogHeader>
 
           {(() => {
-            const rawExtras = data?.getExtras || [];
-            const extrasListFiltered = rawExtras.filter((e: any) => (e.motif || "Extra").toLowerCase() === "extra");
+            // Group extras by user
+            const groupedByUser = new Map<string, { user: any, records: any[], total: number }>();
 
-            let localTotal = 0;
-            const filteredExtras = extrasListFiltered.filter((e: any) => {
-              const user = usersMap.get(String(e.user_id));
-              const userDep = user?.departement || "Autre";
-              const matches = viewExtrasSelectedDepartment === "all" || userDep === viewExtrasSelectedDepartment;
-              if (matches) localTotal += e.montant;
-              return matches;
+            filteredExtrasList.forEach((record: any) => {
+              const userId = String(record.user_id);
+              if (!groupedByUser.has(userId)) {
+                const user = usersMap.get(userId);
+                groupedByUser.set(userId, { user, records: [], total: 0 });
+              }
+              const group = groupedByUser.get(userId)!;
+              group.records.push(record);
+              group.total += record.montant;
             });
+
+            const localTotal = filteredExtrasList.reduce((acc: number, e: any) => acc + e.montant, 0);
 
             return (
               <>
                 <div className="mt-4 space-y-3 max-h-[400px] overflow-y-auto pr-2">
-                  {filteredExtras.length === 0 ? (
+                  {groupedByUser.size === 0 ? (
                     <div className="text-center py-8 text-[#6b5744]">Aucun extra trouvé</div>
                   ) : (
-                    filteredExtras.map((record: any) => {
-                      const user = usersMap.get(String(record.user_id));
-                      return (
-                        <div key={record.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
-                                {user?.photo ? (
-                                  <img src={user.photo} alt="" className="w-full h-full object-cover" />
-                                ) : (
-                                  <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
-                                    {user?.username?.charAt(0) || "?"}
-                                  </div>
-                                )}
-                              </div>
-                              <div>
-                                <p className="font-bold text-[#3d2c1e] text-sm">{user?.username || "Inconnu"}</p>
-                                <p className="text-[10px] text-[#6b5744]">{format(new Date(record.date_extra), 'dd MMM yyyy', { locale: fr })}</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {editingExtraId === record.id ? (
-                                <div className="flex items-center gap-2">
-                                  <Input
-                                    type="number"
-                                    value={editExtraAmount}
-                                    onChange={(e) => setEditExtraAmount(e.target.value)}
-                                    className="h-8 w-20 text-xs"
-                                  />
-                                  <Button size="sm" onClick={() => handleUpdateExtra(record.id)} className="h-8 bg-black text-white px-2">OK</Button>
-                                  <Button size="sm" variant="ghost" onClick={() => setEditingExtraId(null)} className="h-8 px-2">X</Button>
-                                </div>
+                    Array.from(groupedByUser.values()).map(({ user, records, total }) => (
+                      <div key={user?.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
+                              {user?.photo ? (
+                                <img src={user.photo} alt="" className="w-full h-full object-cover" />
                               ) : (
-                                <>
-                                  <div className="text-emerald-600 font-black text-sm mr-2">
-                                    {record.montant.toLocaleString()} DT
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => {
-                                      setEditingExtraId(record.id);
-                                      setEditExtraAmount(record.montant.toString());
-                                    }}
-                                    className="h-8 w-8 p-0"
-                                  >
-                                    <RotateCcw className="h-4 w-4 text-blue-600" />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => {
-                                      setDeleteTargetId(record.id);
-                                      setDeleteConfirmOpen(true);
-                                    }}
-                                    className="h-8 w-8 p-0"
-                                  >
-                                    <XCircle className="h-4 w-4 text-red-600" />
-                                  </Button>
-                                </>
+                                <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
+                                  {user?.username?.charAt(0) || "?"}
+                                </div>
                               )}
                             </div>
+                            <div className="flex-1">
+                              <p className="font-bold text-[#3d2c1e] text-sm">{user?.username || "Inconnu"}</p>
+                              <p className="text-[10px] text-[#6b5744]">Dates travaillées:</p>
+                            </div>
+                          </div>
+                          <div className="text-emerald-600 font-black text-lg">
+                            {total} DT
                           </div>
                         </div>
-                      )
-                    })
+
+                        <div className="ml-13 mt-2 flex flex-wrap gap-2">
+                          {records
+                            .sort((a, b) => new Date(b.date_extra).getTime() - new Date(a.date_extra).getTime())
+                            .map((record: any, idx: number) => (
+                              <span key={idx} className="text-xs text-[#6b5744] bg-white px-2 py-1 rounded border border-[#c9b896]/30">
+                                {format(new Date(record.date_extra), 'dd MMM yyyy', { locale: fr })}
+                              </span>
+                            ))}
+                        </div>
+                      </div>
+                    ))
                   )}
                 </div>
 
                 <div className="mt-6 pt-4 border-t border-[#c9b896]/30 flex justify-between items-center font-black text-[#8b5a2b]">
-                  <span>TOTAL {viewExtrasSelectedDepartment === "all" ? "GLOBAL" : viewExtrasSelectedDepartment.toUpperCase()}</span>
+                  <span>TOTAL GLOBAL</span>
                   <span className="text-xl text-emerald-700">{Math.round(localTotal).toLocaleString()} DT</span>
                 </div>
               </>
@@ -1730,95 +1621,67 @@ export default function PayrollPage() {
           </DialogHeader>
 
           {(() => {
-            const rawExtras = data?.getExtras || [];
-            const primesListFiltered = rawExtras.filter((e: any) => (e.motif || "").toLowerCase() === "prime");
+            // Group primes by user
+            const groupedByUser = new Map<string, { user: any, records: any[], total: number }>();
 
-            let localTotal = 0;
-            const filteredPrimes = primesListFiltered.filter((e: any) => {
-              const user = usersMap.get(String(e.user_id));
-              const userDep = user?.departement || "Autre";
-              const matches = viewPrimesSelectedDepartment === "all" || userDep === viewPrimesSelectedDepartment;
-              if (matches) localTotal += e.montant;
-              return matches;
+            filteredPrimesList.forEach((record: any) => {
+              const userId = String(record.user_id);
+              if (!groupedByUser.has(userId)) {
+                const user = usersMap.get(userId);
+                groupedByUser.set(userId, { user, records: [], total: 0 });
+              }
+              const group = groupedByUser.get(userId)!;
+              group.records.push(record);
+              group.total += record.montant;
             });
+
+            const localTotal = filteredPrimesList.reduce((acc: number, e: any) => acc + e.montant, 0);
 
             return (
               <>
                 <div className="mt-4 space-y-3 max-h-[400px] overflow-y-auto pr-2">
-                  {filteredPrimes.length === 0 ? (
+                  {groupedByUser.size === 0 ? (
                     <div className="text-center py-8 text-[#6b5744]">Aucune prime trouvée</div>
                   ) : (
-                    filteredPrimes.map((record: any) => {
-                      const user = usersMap.get(String(record.user_id));
-                      return (
-                        <div key={record.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30 hover:bg-[#f8f6f1] transition-colors">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
-                                {user?.photo ? (
-                                  <img src={user.photo} alt="" className="w-full h-full object-cover" />
-                                ) : (
-                                  <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
-                                    {user?.username?.charAt(0) || "?"}
-                                  </div>
-                                )}
-                              </div>
-                              <div>
-                                <p className="font-bold text-[#3d2c1e] text-sm">{user?.username || "Inconnu"}</p>
-                                <p className="text-[10px] text-[#6b5744]">{format(new Date(record.date_extra), 'dd MMM yyyy', { locale: fr })}</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {editingExtraId === record.id ? (
-                                <div className="flex items-center gap-2">
-                                  <Input
-                                    type="number"
-                                    value={editExtraAmount}
-                                    onChange={(e) => setEditExtraAmount(e.target.value)}
-                                    className="h-8 w-20 text-xs"
-                                  />
-                                  <Button size="sm" onClick={() => handleUpdateExtra(record.id)} className="h-8 bg-black text-white px-2">OK</Button>
-                                  <Button size="sm" variant="ghost" onClick={() => setEditingExtraId(null)} className="h-8 px-2">X</Button>
-                                </div>
+                    Array.from(groupedByUser.values()).map(({ user, records, total }) => (
+                      <div key={user?.id} className="flex flex-col gap-2 p-4 rounded-xl border border-[#c9b896]/30 bg-[#f8f6f1]/30">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-full overflow-hidden border border-[#c9b896]/50 bg-white">
+                              {user?.photo ? (
+                                <img src={user.photo} alt="" className="w-full h-full object-cover" />
                               ) : (
-                                <>
-                                  <div className="text-amber-600 font-black text-sm mr-2">
-                                    {record.montant.toLocaleString()} DT
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => {
-                                      setEditingExtraId(record.id);
-                                      setEditExtraAmount(record.montant.toString());
-                                    }}
-                                    className="h-8 w-8 p-0"
-                                  >
-                                    <RotateCcw className="h-4 w-4 text-blue-600" />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => {
-                                      setDeleteTargetId(record.id);
-                                      setDeleteConfirmOpen(true);
-                                    }}
-                                    className="h-8 w-8 p-0"
-                                  >
-                                    <XCircle className="h-4 w-4 text-red-600" />
-                                  </Button>
-                                </>
+                                <div className="h-full w-full flex items-center justify-center text-[#8b5a2b] font-bold">
+                                  {user?.username?.charAt(0) || "?"}
+                                </div>
                               )}
                             </div>
+                            <div className="flex-1">
+                              <p className="font-bold text-[#3d2c1e] text-sm">{user?.username || "Inconnu"}</p>
+                              <p className="text-[10px] text-[#6b5744]">Dates travaillées:</p>
+                            </div>
+                          </div>
+                          <div className="text-amber-600 font-black text-lg">
+                            {total} DT
                           </div>
                         </div>
-                      )
-                    })
+
+                        <div className="ml-13 mt-2 flex flex-wrap gap-2">
+                          {records
+                            .sort((a, b) => new Date(b.date_extra).getTime() - new Date(a.date_extra).getTime())
+                            .map((record: any, idx: number) => (
+                              <span key={idx} className="text-xs text-[#6b5744] bg-white px-2 py-1 rounded border border-[#c9b896]/30">
+                                {format(new Date(record.date_extra), 'dd MMM yyyy', { locale: fr })}
+                              </span>
+                            ))}
+                        </div>
+                      </div>
+                    ))
                   )}
                 </div>
 
                 <div className="mt-6 pt-4 border-t border-[#c9b896]/30 flex justify-between items-center font-black text-[#8b5a2b]">
-                  <span>TOTAL {viewPrimesSelectedDepartment === "all" ? "GLOBAL" : viewPrimesSelectedDepartment.toUpperCase()}</span>
+                  <span>TOTAL GLOBAL</span>
                   <span className="text-xl text-amber-700">{Math.round(localTotal).toLocaleString()} DT</span>
                 </div>
               </>

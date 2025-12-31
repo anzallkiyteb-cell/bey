@@ -252,7 +252,7 @@ const typeDefs = `#graphql
     syncAttendance(date: String): Boolean
     addExtra(user_id: ID!, montant: Float!, date_extra: String!, motif: String): Extra
     deleteExtra(id: ID!): Boolean
-    updateExtra(id: ID!, montant: Float, motif: String): Extra
+    updateExtra(id: ID!, montant: Float, motif: String, date_extra: String): Extra
     addDoublage(user_id: ID!, montant: Float!, date: String!): Doublage
     deleteDoublage(id: ID!): Boolean
     updateDoublage(id: ID!, montant: Float, date: String): Doublage
@@ -420,13 +420,20 @@ const ensureNotificationsTable = async () => {
 };
 
 // Internal helper to create notifications
-const createNotification = async (type: string, title: string, message: string, userId: string | null = null, userDone: string | null = null, url: string | null = null) => {
+const createNotification = async (type: string, title: string, message: string, userId: string | null = null, userDone: string | null = null, url: string | null = null, customTimestamp: string | null = null) => {
   try {
     await ensureNotificationsTable();
-    await pool.query(
-      `INSERT INTO public.notifications (type, title, message, user_id, user_done, url) VALUES ($1, $2, $3, $4, $5, $6)`,
-      [type, title, message, userId, userDone, url]
-    );
+    if (customTimestamp) {
+      await pool.query(
+        `INSERT INTO public.notifications (type, title, message, user_id, user_done, url, timestamp) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [type, title, message, userId, userDone, url, customTimestamp]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO public.notifications (type, title, message, user_id, user_done, url) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [type, title, message, userId, userDone, url]
+      );
+    }
   } catch (e) {
     console.error("Notification Error:", e);
   }
@@ -909,6 +916,7 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
   updatedFlagsRes.rows.forEach((r: any) => updatedFlagsMap.set(Number(r.user_id), !!r.updated));
 
   // Process all users in parallel to minimize round-trip latency
+  const pendingNotifications: any[] = [];
   await Promise.all(users.map(async (user: any) => {
     const userIdNum = Number(user.id);
     let userPunches = punchesByUser.get(userIdNum) || [];
@@ -938,7 +946,16 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
         const exists = Array.from(notificationMessages).some((m: string) => m.includes(msgKey));
         if (!exists) {
           const finalUid = user.id || user.user_id;
-          await createNotification('pointage', `Pointage ${type}`, `${user.username} a pointé son ${type} à ${formatTime(pTimeStr)}. [REF:${msgKey}]`, finalUid, "Machine ZKTeco", `/attendance?userId=${finalUid}&date=${dateSQL}`);
+          // defer creation to ensure order
+          pendingNotifications.push({
+            type: 'pointage',
+            title: `Pointage ${type}`,
+            message: `${user.username} a pointé son ${type} à ${formatTime(pTimeStr)}. [REF:${msgKey}]`,
+            userId: finalUid,
+            userDone: "Machine ZKTeco",
+            url: `/attendance?userId=${finalUid}&date=${dateSQL}`,
+            timestamp: pTimeStr
+          });
           notificationMessages.add(`[REF:${msgKey}]`); // Add to local set to avoid duplicates in same run
         }
       }
@@ -1212,6 +1229,15 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       [finalPresent, totalAdvance, dayExtra, dayPrime, dayInfraction, dayDoublage, miseAPiedDays, retardMins, finalRemark, user.id, dateSQL, user.username, clockIn, clockOut]
     );
   }));
+
+  // flush accumulated notifications sorted by time ASC (so earliest gets lowest ID, latest gets highest ID)
+  if (pendingNotifications.length > 0) {
+    pendingNotifications.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    for (const n of pendingNotifications) {
+      await createNotification(n.type, n.title, n.message, n.userId, n.userDone, n.url, n.timestamp);
+    }
+  }
+
   invalidateCache();
 }
 
@@ -1375,6 +1401,9 @@ const resolvers = {
       }));
 
       setCache(cacheKey, results, 60000); // 1 minute cache
+
+
+
       return results;
     },
     getRetards: async (_: any, { date, startDate, endDate }: { date?: string, startDate?: string, endDate?: string }) => {
@@ -1424,7 +1453,7 @@ const resolvers = {
           q += ' WHERE user_id = $1 OR user_id IS NULL';
           params.push(userId);
         }
-        q += ' ORDER BY timestamp DESC';
+        q += ' ORDER BY id DESC';
         if (limit) {
           q += ` LIMIT ${limit}`;
         } else {
@@ -1441,9 +1470,25 @@ const resolvers = {
             else if (r.type === 'payment') url = `/payroll`;
             else url = '/';
           }
+
+          let finalIso = null;
+          if (r.timestamp) {
+            const d = new Date(r.timestamp);
+            const pad = (n: number) => String(n).padStart(2, '0');
+            // Force interpretation as Tunis Time (+01:00)
+            // We use getHours() etc from the server-parsed date which represents the 'face value' of the DB timestamp
+            const Y = d.getFullYear();
+            const M = pad(d.getMonth() + 1);
+            const D = pad(d.getDate());
+            const h = pad(d.getHours());
+            const m = pad(d.getMinutes());
+            const s = pad(d.getSeconds());
+            finalIso = `${Y}-${M}-${D}T${h}:${m}:${s}.000+01:00`;
+          }
+
           return {
             ...r,
-            timestamp: formatDateTimeLocal(r.timestamp),
+            timestamp: finalIso,
             url
           };
         });
@@ -2608,19 +2653,27 @@ const resolvers = {
       await createNotification('system', "Paiement Extra Supprimé", `Le paiement extra pour ${userRes.rows[0]?.username || 'Inconnu'} du ${formatDateLocal(date_extra)} a été supprimé.`, user_id, context.userDone);
       return (res.rowCount || 0) > 0;
     },
-    updateExtra: async (_: any, { id, montant, motif }: { id: string, montant?: number, motif?: string }, context: any) => {
+    updateExtra: async (_: any, { id, montant, motif, date_extra }: { id: string, montant?: number, motif?: string, date_extra?: string }, context: any) => {
       const info = await pool.query('SELECT user_id, date_extra FROM public.extras WHERE id = $1', [id]);
       if (info.rows.length === 0) throw new Error("Extra record not found");
-      const { user_id, date_extra } = info.rows[0];
+      const { user_id, date_extra: oldDate } = info.rows[0];
 
       const updates = [];
       const params: any[] = [id];
       let pIdx = 2;
       if (montant !== undefined) { updates.push(`montant = $${pIdx++} `); params.push(montant); }
       if (motif !== undefined) { updates.push(`motif = $${pIdx++} `); params.push(motif); }
+      if (date_extra !== undefined) { updates.push(`date_extra = $${pIdx++} `); params.push(date_extra); }
 
       const res = await pool.query(`UPDATE public.extras SET ${updates.join(', ')} WHERE id = $1 RETURNING *`, params);
-      await recomputePayrollForDate(formatDateLocal(date_extra) as string, String(user_id));
+
+      // Sync old date if date changed
+      if (date_extra && formatDateLocal(date_extra) !== formatDateLocal(oldDate)) {
+        await recomputePayrollForDate(formatDateLocal(oldDate) as string, String(user_id));
+      }
+      // Sync (new) date
+      await recomputePayrollForDate(formatDateLocal(date_extra || oldDate) as string, String(user_id));
+
       const row = res.rows[0];
       return { ...row, montant: parseFloat(row.montant || 0), date_extra: formatDateTimeLocal(row.date_extra) };
     },
@@ -2663,7 +2716,14 @@ const resolvers = {
       if (date !== undefined) { updates.push(`date = $${pIdx++} `); params.push(date); }
 
       const res = await pool.query(`UPDATE public.doublages SET ${updates.join(', ')} WHERE id = $1 RETURNING *`, params);
+
+      // Sync old date if date changed
+      if (date && formatDateLocal(date) !== formatDateLocal(oldDate)) {
+        await recomputePayrollForDate(formatDateLocal(oldDate) as string, String(user_id));
+      }
+      // Sync (new) date
       await recomputePayrollForDate(formatDateLocal(date || oldDate) as string, String(user_id));
+
       const row = res.rows[0];
       return { ...row, montant: parseFloat(row.montant || 0), date: formatDateTimeLocal(row.date) };
     },
