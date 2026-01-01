@@ -89,6 +89,7 @@ const SHIFT_OPTIONS = [
     { value: "Soir", label: "Soir", icon: Moon, color: "text-blue-600", bg: "bg-blue-50", border: "border-blue-200", iconBg: "bg-blue-100" },
     { value: "Doublage", label: "Doublage", icon: ShieldAlert, color: "text-purple-600", bg: "bg-purple-50", border: "border-purple-200", iconBg: "bg-purple-100" },
     { value: "Repos", label: "Repos", icon: Coffee, color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200", iconBg: "bg-emerald-100" },
+    { value: null, label: "Non configuré", icon: ShieldAlert, color: "text-red-600", bg: "bg-red-50", border: "border-red-200", iconBg: "bg-red-100" },
 ]
 
 export default function AllSchedulesPlacementPage() {
@@ -262,7 +263,7 @@ export default function AllSchedulesPlacementPage() {
                                             {DAYS.map(day => {
                                                 const emps = filteredSchedules.filter((s: any) =>
                                                     (s.departement || "Autre") === dept &&
-                                                    (s[day.key] || "Repos") === shiftOpt.value
+                                                    (shiftOpt.value === null ? !s[day.key] : s[day.key] === shiftOpt.value)
                                                 )
 
                                                 return (
@@ -316,10 +317,10 @@ export default function AllSchedulesPlacementPage() {
                                                                                 <p className="text-[7px] font-black text-[#8b5a2b]/40 uppercase">{day.label}</p>
                                                                                 <p className="text-[9px] font-black text-[#3d2c1e] truncate tracking-tight">{emp.username}</p>
                                                                             </div>
-                                                                            {SHIFT_OPTIONS.map((opt) => (
+                                                                            {SHIFT_OPTIONS.filter(o => o.value !== null).map((opt) => (
                                                                                 <DropdownMenuItem
                                                                                     key={opt.value}
-                                                                                    onClick={() => handleUpdateShift(emp, day.key, opt.value)}
+                                                                                    onClick={() => handleUpdateShift(emp, day.key, opt.value!)}
                                                                                     className={cn(
                                                                                         "flex items-center gap-2 p-1.5 rounded-lg cursor-pointer font-black text-[9px] uppercase mb-0.5 last:mb-0 transition-all",
                                                                                         opt.iconBg, opt.color, opt.value === shiftOpt.value ? "ring-1 ring-[#8b5a2b] bg-white ring-offset-0 scale-100" : "hover:scale-[1.02] opacity-80 hover:opacity-100"

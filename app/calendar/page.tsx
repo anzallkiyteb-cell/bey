@@ -62,6 +62,7 @@ const SHIFT_THEMES: any = {
   Soir: { icon: Moon, color: "text-blue-600", bg: "bg-blue-50", border: "border-blue-200", badge: "bg-blue-100 text-blue-700" },
   Doublage: { icon: ShieldAlert, color: "text-purple-600", bg: "bg-purple-50", border: "border-purple-200", badge: "bg-purple-100 text-purple-700" },
   Repos: { icon: Coffee, color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200", badge: "bg-emerald-100 text-emerald-700" },
+  "Non configuré": { icon: ShieldAlert, color: "text-red-600", bg: "bg-red-50", border: "border-red-200", badge: "bg-red-100 text-red-700" },
 }
 
 export default function CalendarPage() {
@@ -91,8 +92,8 @@ export default function CalendarPage() {
     const grouped: any = {}
     filteredSchedules.forEach((s: any) => {
       const dept = s.departement || "Autre"
-      const shift = s[selectedDayKey] || "Repos"
-      if (!grouped[dept]) grouped[dept] = { Matin: [], Soir: [], Doublage: [], Repos: [] }
+      const shift = s[selectedDayKey] || "Non configuré"
+      if (!grouped[dept]) grouped[dept] = { Matin: [], Soir: [], Doublage: [], Repos: [], "Non configuré": [] }
       if (grouped[dept][shift]) grouped[dept][shift].push({ username: s.username, photo: s.photo })
     })
     return grouped
@@ -422,12 +423,12 @@ export default function CalendarPage() {
                               </div>
                             </td>
                             {DAYS.map(day => {
-                              const shift = emp[day.key] || "Repos"
+                              const shift = emp[day.key] || "Non configuré"
                               const theme = SHIFT_THEMES[shift]
                               const Icon = theme.icon
                               return (
                                 <td key={day.key} className="p-6 text-center border-r border-[#f1e9db]">
-                                  <div className={cn("inline-flex flex-col items-center justify-center gap-2 p-6 rounded-[2.5rem] border-2 transition-all w-[140px] shadow-sm", theme.bg, theme.border, theme.color, shift === "Repos" && "opacity-30")}>
+                                  <div className={cn("inline-flex flex-col items-center justify-center gap-2 p-6 rounded-[2.5rem] border-2 transition-all w-[140px] shadow-sm", theme.bg, theme.border, theme.color, (shift === "Repos" || shift === "Non configuré") && "opacity-30")}>
                                     <Icon className="h-6 w-6" />
                                     <span className="text-[10px] font-black uppercase">{shift}</span>
                                   </div>
@@ -466,10 +467,10 @@ export default function CalendarPage() {
 
                         <div className="grid grid-cols-4 xs:grid-cols-7 gap-2 xs:gap-3">
                           {DAYS.map(day => {
-                            const shift = emp[day.key] || "Repos"
+                            const shift = emp[day.key] || "Non configuré"
                             const theme = SHIFT_THEMES[shift]
                             return (
-                              <div key={day.key} className={cn("flex flex-col items-center gap-1.5 xs:gap-2 p-2 xs:p-3 rounded-2xl border-2", theme.bg, theme.border, theme.color, shift === "Repos" && "opacity-40")}>
+                              <div key={day.key} className={cn("flex flex-col items-center gap-1.5 xs:gap-2 p-2 xs:p-3 rounded-2xl border-2", theme.bg, theme.border, theme.color, (shift === "Repos" || shift === "Non configuré") && "opacity-40")}>
                                 <span className="text-[9px] xs:text-[10px] font-black">{day.short}</span>
                                 <theme.icon className="h-4 w-4 xs:h-5 xs:w-5" />
                               </div>

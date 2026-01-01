@@ -1281,12 +1281,14 @@ const resolvers = {
     },
     getAllSchedules: async () => {
       const res = await pool.query(`
-        SELECT s.*, u."département" as departement, u.photo 
-        FROM public.user_schedules s
-        JOIN public.users u ON s.user_id = u.id
+        SELECT u.id as user_id, u.username, u."département" as departement, u.photo,
+               s.dim, s.lun, s.mar, s.mer, s.jeu, s.ven, s.sam
+        FROM public.users u
+        LEFT JOIN public.user_schedules s ON u.id = s.user_id
+        WHERE u.status = 'active' OR u.status = 'IN'
         ORDER BY u."département" ASC, u.username ASC
       `);
-      return res.rows.map((r: any) => ({ ...r, photo: r.photo }));
+      return res.rows;
     },
     getUser: async (_: any, { id }: { id: string }) => {
       const res = await pool.query(`
