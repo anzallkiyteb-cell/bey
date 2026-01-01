@@ -1382,7 +1382,13 @@ const resolvers = {
         params.push(filter);
       }
 
-      if (month) {
+      if (month && month.includes('_')) {
+        const [year, monthNum] = month.split('_');
+        const start = `${year}-${monthNum}-01`;
+        const end = formatDateLocal(new Date(parseInt(year, 10), parseInt(monthNum, 10), 1));
+        conditions.push(`date >= $${params.length + 1} AND date < $${params.length + 2}`);
+        params.push(start, end);
+      } else if (month) {
         conditions.push(`month = $${params.length + 1} `);
         params.push(month);
       }
@@ -1507,7 +1513,7 @@ const resolvers = {
       } else if (month) {
         const [year, monthNum] = month.split('_');
         const start = `${year}-${monthNum}-01`;
-        const end = new Date(parseInt(year), parseInt(monthNum), 1).toISOString().split('T')[0];
+        const end = formatDateLocal(new Date(parseInt(year, 10), parseInt(monthNum, 10), 1));
         q += " WHERE date_extra >= $1 AND date_extra < $2";
         params.push(start, end);
       }
@@ -1526,8 +1532,7 @@ const resolvers = {
       if (month) {
         const [year, monthNum] = month.split('_');
         const start = `${year}-${monthNum}-01`;
-        const endDay = new Date(parseInt(year), parseInt(monthNum), 1);
-        const end = endDay.toISOString().split('T')[0];
+        const end = formatDateLocal(new Date(parseInt(year, 10), parseInt(monthNum, 10), 1));
         q += ` AND date >= $${params.length + 1} AND date < $${params.length + 2}`;
         params.push(start, end);
       }

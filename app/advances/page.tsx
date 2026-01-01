@@ -6,9 +6,9 @@ import { Sidebar } from "@/components/sidebar"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { DollarSign, TrendingUp, AlertCircle, Plus, CheckCircle, XCircle, Trash2, Calendar as CalendarIcon, Loader2 } from "lucide-react"
-import { useState, Suspense, useMemo, useEffect } from "react"
-import { useSearchParams } from "next/navigation"
+import { DollarSign, TrendingUp, AlertCircle, Plus, CheckCircle, XCircle, Trash2, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight } from "lucide-react"
+import { useState, Suspense, useMemo, useEffect, useCallback } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar } from "@/components/ui/calendar"
@@ -22,7 +22,7 @@ import { getCurrentUser } from "@/lib/mock-data"
 
 // GraphQL Queries & Mutations
 const GET_DATA = gql`
-  query GetData {
+  query GetData($month: String) {
     personnelStatus {
       user {
         id
@@ -36,7 +36,7 @@ const GET_DATA = gql`
         status
       }
     }
-    getAdvances {
+    getAdvances(month: $month) {
       id
       montant
       username
@@ -99,7 +99,20 @@ function AdvancesContent() {
   const searchParams = useSearchParams()
   const filterParam = searchParams.get("filter")
 
-  const { data, loading, error } = useQuery(GET_DATA, { fetchPolicy: "cache-and-network" });
+  const [selectedMonth, setSelectedMonth] = useState(new Date())
+  const payrollMonthKey = format(selectedMonth, "yyyy_MM")
+
+  const navigateMonth = useCallback((direction: "prev" | "next") => {
+    const newDate = new Date(selectedMonth);
+    if (direction === "prev") newDate.setMonth(newDate.getMonth() - 1);
+    else newDate.setMonth(newDate.getMonth() + 1);
+    setSelectedMonth(newDate);
+  }, [selectedMonth]);
+
+  const { data, loading, error, refetch } = useQuery(GET_DATA, {
+    variables: { month: payrollMonthKey },
+    fetchPolicy: "cache-and-network"
+  });
   const userIdParam = searchParams.get("userId");
 
   // Handle auto-scroll to user from notification
@@ -136,7 +149,7 @@ function AdvancesContent() {
       }
     }),
     update(cache, { data: { addAdvance } }) {
-      const existingData: any = cache.readQuery({ query: GET_DATA });
+      const existingData: any = cache.readQuery({ query: GET_DATA, variables: { month: payrollMonthKey } });
       if (existingData && existingData.getAdvances) {
         // Create a new advance object that matches the structure
         const newAdvance = {
@@ -151,6 +164,7 @@ function AdvancesContent() {
         };
         cache.writeQuery({
           query: GET_DATA,
+          variables: { month: payrollMonthKey },
           data: {
             ...existingData,
             getAdvances: [...existingData.getAdvances, newAdvance]
@@ -162,13 +176,14 @@ function AdvancesContent() {
 
   const [updateAdvance] = useMutation(UPDATE_ADVANCE, {
     update(cache, { data: { updateAdvance } }) {
-      const existingData: any = cache.readQuery({ query: GET_DATA });
+      const existingData: any = cache.readQuery({ query: GET_DATA, variables: { month: payrollMonthKey } });
       if (existingData && existingData.getAdvances) {
         const updatedList = existingData.getAdvances.map((adv: any) =>
           adv.id === editingId ? { ...adv, montant: updateAdvance.montant, date: updateAdvance.date, motif: updateAdvance.motif } : adv
         );
         cache.writeQuery({
           query: GET_DATA,
+          variables: { month: payrollMonthKey },
           data: { ...existingData, getAdvances: updatedList }
         });
       }
@@ -185,13 +200,14 @@ function AdvancesContent() {
       }
     }),
     update(cache, { data: { updateAdvanceStatus } }) {
-      const existingData: any = cache.readQuery({ query: GET_DATA });
+      const existingData: any = cache.readQuery({ query: GET_DATA, variables: { month: payrollMonthKey } });
       if (existingData && existingData.getAdvances) {
         const updatedList = existingData.getAdvances.map((adv: any) =>
           adv.id === updateAdvanceStatus.id ? { ...adv, statut: updateAdvanceStatus.statut } : adv
         );
         cache.writeQuery({
           query: GET_DATA,
+          variables: { month: payrollMonthKey },
           data: { ...existingData, getAdvances: updatedList }
         });
       }
@@ -392,11 +408,12 @@ function AdvancesContent() {
       await deleteAdvance({
         variables: { id },
         update(cache) {
-          const existingData: any = cache.readQuery({ query: GET_DATA });
+          const existingData: any = cache.readQuery({ query: GET_DATA, variables: { month: payrollMonthKey } });
           if (existingData && existingData.getAdvances) {
             const updatedList = existingData.getAdvances.filter((a: any) => a.id !== id);
             cache.writeQuery({
               query: GET_DATA,
+              variables: { month: payrollMonthKey },
               data: { ...existingData, getAdvances: updatedList }
             });
           }
@@ -418,9 +435,20 @@ function AdvancesContent() {
               <h1 className="font-[family-name:var(--font-heading)] text-3xl sm:text-4xl font-bold text-[#8b5a2b]">
                 Liste des Avances
               </h1>
-              <p className="mt-2 text-base sm:text-lg text-[#6b5744]">
-                Gérer les avances des employés ({advances.length} total)
-              </p>
+              <div className="flex items-center gap-2 mt-2">
+                <p className="text-base sm:text-lg text-[#6b5744]">
+                  Gérer les avances —
+                </p>
+                <div className="flex items-center gap-2 bg-[#f8f6f1] rounded-md px-2 py-0.5 border border-[#c9b896]">
+                  <Button variant="ghost" size="icon" onClick={() => navigateMonth("prev")} className="h-6 w-6">
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="font-bold text-[#3d2c1e] text-sm uppercase">{format(selectedMonth, 'MMMM yyyy', { locale: fr })}</span>
+                  <Button variant="ghost" size="icon" onClick={() => navigateMonth("next")} className="h-6 w-6">
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
             <Button
               onClick={handleOpenAdd}
