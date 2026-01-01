@@ -377,6 +377,19 @@ const formatFullTime = (dateStr: string) => {
 const formatDateLocal = (dateInput: Date | string) => {
   if (!dateInput) return null;
   const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return null;
+
+  // If the time is exactly midnight UTC, it's likely a PG 'DATE' type
+  // In this case, we avoid local timezone shifting to prevent offsets
+  const isMidnightUTC = d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0;
+
+  if (isMidnightUTC) {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -1150,8 +1163,28 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       return deduct.includes(t);
     };
 
+    const userExtras = extrasMap.get(userIdNum) || [];
+    let dayExtra = 0;
+    let dayPrime = 0;
+    let dayInfraction = 0;
+    let hasManualInfraction = false;
+
+    userExtras.forEach((r: any) => {
+      const motif = (r.motif || "").toLowerCase();
+      if (motif.startsWith("prime")) dayPrime += parseFloat(r.montant || 0);
+      else if (motif.startsWith("infraction")) {
+        dayInfraction += parseFloat(r.montant || 0);
+        hasManualInfraction = true;
+      }
+      else dayExtra += parseFloat(r.montant || 0);
+    });
+
     let finalPresent = 0;
     if (userPunches.length > 0) finalPresent = 1;
+
+    // Use dayExtra to force present = 0 as requested by user
+    if (dayExtra > 0) finalPresent = 0;
+
     if (shiftType === "Repos") finalPresent = 0;
 
     // Auto-detected absence logic override
@@ -1165,25 +1198,7 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
 
     let finalRemark = currentRetard?.reason || (currentAbsent ? currentAbsent.reason : (isAbsent || isRetard ? reason : null));
     let autoInfraction = (retardMins > 10) ? 30 : 0;
-
     const totalAdvance = advancesMap.get(userIdNum) || 0;
-
-    const userExtras = extrasMap.get(userIdNum) || [];
-    let dayExtra = 0;
-    let dayPrime = 0;
-    let dayInfraction = 0;
-
-    let hasManualInfraction = false;
-    userExtras.forEach((r: any) => {
-      const motif = (r.motif || "").toLowerCase();
-      if (motif.startsWith("prime")) dayPrime += parseFloat(r.montant || 0);
-      else if (motif.startsWith("infraction")) {
-        dayInfraction += parseFloat(r.montant || 0);
-        hasManualInfraction = true;
-      }
-      else dayExtra += parseFloat(r.montant || 0);
-    });
-
     let dayDoublage = doublagesMap.get(userIdNum) || 0;
 
     const miseAPiedRecord = userAbsentsForPay.find((a: any) => a.type === 'Mise à pied');
@@ -1213,22 +1228,26 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
     // Even if it's the current day, if it's manually updated, we should be careful.
     // However, for the current day, we prioritize live data from ZK machine.
 
+    const isManuallyUpdatedInDB = !!updatedFlagsMap.get(userIdNum);
+    const forceUpdated = isManuallyUpdatedInDB || dayExtra > 0;
+
     await pool.query(
       `INSERT INTO public.\"${payrollTableName}\"(user_id, username, date, present, acompte, extra, prime, infraction, doublage, mise_a_pied, retard, remarque, clock_in, clock_out, updated)
-        VALUES($10, $12, $11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, FALSE)
+        VALUES($10, $12, $11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, $15)
          ON CONFLICT(user_id, date) DO UPDATE SET
-        present = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".present ELSE EXCLUDED.present END,
-          acompte = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".acompte ELSE EXCLUDED.acompte END,
-          extra = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".extra ELSE EXCLUDED.extra END,
-          prime = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".prime ELSE EXCLUDED.prime END,
-          infraction = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".infraction ELSE EXCLUDED.infraction END,
-          doublage = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".doublage ELSE EXCLUDED.doublage END,
+          present = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".present ELSE EXCLUDED.present END,
+          acompte = EXCLUDED.acompte,
+          extra = EXCLUDED.extra,
+          prime = EXCLUDED.prime,
+          infraction = EXCLUDED.infraction,
+          doublage = EXCLUDED.doublage,
           mise_a_pied = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".mise_a_pied ELSE EXCLUDED.mise_a_pied END,
           retard = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".retard ELSE EXCLUDED.retard END,
           remarque = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".remarque ELSE EXCLUDED.remarque END,
           clock_in = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".clock_in ELSE EXCLUDED.clock_in END,
-          clock_out = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".clock_out ELSE EXCLUDED.clock_out END`,
-      [finalPresent, totalAdvance, dayExtra, dayPrime, dayInfraction, dayDoublage, miseAPiedDays, retardMins, finalRemark, user.id, dateSQL, user.username, clockIn, clockOut]
+          clock_out = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".clock_out ELSE EXCLUDED.clock_out END,
+          updated = CASE WHEN EXCLUDED.updated = TRUE THEN TRUE ELSE public.\"${payrollTableName}\".updated END`,
+      [finalPresent, totalAdvance, dayExtra, dayPrime, dayInfraction, dayDoublage, miseAPiedDays, retardMins, finalRemark, user.id, dateSQL, user.username, clockIn, clockOut, forceUpdated]
     );
   }));
 
@@ -1748,10 +1767,10 @@ const resolvers = {
           return {
             ...r,
             date: dateStr,
-            acompte: totalAdvance,
-            extra: totalExtra,
-            prime: totalPrime,
-            doublage: totalDoublage,
+            acompte: totalAdvance || r.acompte || 0,
+            extra: totalExtra || r.extra || 0,
+            prime: totalPrime || r.prime || 0,
+            doublage: totalDoublage || r.doublage || 0,
             infraction: Math.max(r.infraction || 0, totalInfractionExtra),
             mise_a_pied: finalMiseAPied,
             present: finalPresent,
@@ -2761,9 +2780,15 @@ const resolvers = {
       await recomputePayrollForDate(dateSQL as string, String(user_id));
 
       // 5. Then apply manual overrides from the fiche (these "win" for this specific record)
+      // If an 'extra' is added manually from the fiche, force present = 0
+      if (input.extra > 0) {
+        input.present = 0;
+      }
+
       const updates: string[] = [];
       const params: any[] = [id];
       let i = 2;
+
       for (const [key, val] of Object.entries(input)) {
         if (key === 'id') continue;
         updates.push(`"${key}" = $${i++}`);

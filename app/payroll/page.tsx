@@ -149,6 +149,7 @@ const ADD_DOUBLAGE = gql`
   }
 `
 
+
 const INIT_PAYROLL = gql`
   mutation InitPayroll($month: String!) {
     initPayrollMonth(month: $month)

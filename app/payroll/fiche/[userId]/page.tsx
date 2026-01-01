@@ -211,11 +211,11 @@ export default function UserFichePage() {
         const totalRetardMins = payroll.reduce((sum: number, r: any) => sum + (r.retard || 0), 0)
         const retardPenaltyTotal = payroll.reduce((sum: number, r: any) => sum + (r.retard > 30 ? 30 : 0), 0)
 
-        const totalAdvances = payroll.reduce((sum: number, r: any) => sum + (r.acompte || 0), 0)
-        const totalPrimes = payroll.reduce((sum: number, r: any) => sum + (r.prime || 0), 0)
-        const totalInfractions = payroll.reduce((sum: number, r: any) => sum + (r.infraction || 0), 0)
-        const totalExtras = payroll.reduce((sum: number, r: any) => sum + (r.extra || 0), 0)
-        const totalDoublages = payroll.reduce((sum: number, r: any) => sum + (r.doublage || 0), 0)
+        const totalAdvances = payroll.reduce((sum: number, r: any) => sum + parseFloat(r.acompte || 0), 0)
+        const totalPrimes = payroll.reduce((sum: number, r: any) => sum + parseFloat(r.prime || 0), 0)
+        const totalInfractions = payroll.reduce((sum: number, r: any) => sum + parseFloat(r.infraction || 0), 0)
+        const totalExtras = payroll.reduce((sum: number, r: any) => sum + parseFloat(r.extra || 0), 0)
+        const totalDoublages = payroll.reduce((sum: number, r: any) => sum + parseFloat(r.doublage || 0), 0)
 
         const isPaid = payroll.some((r: any) => r.paid === true)
 
