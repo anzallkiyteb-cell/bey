@@ -285,12 +285,21 @@ export default function AllSchedulesPlacementPage() {
                                                                                 onPointerUp={onLongPressEnd}
                                                                                 onPointerLeave={onLongPressEnd}
                                                                                 className={cn(
-                                                                                    "flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all active:scale-95 text-left w-full overflow-hidden border shadow-[0_1px_2px_rgba(0,0,0,0.05)]",
+                                                                                    "flex items-center gap-2 px-1.5 py-1.5 rounded-lg transition-all active:scale-95 text-left w-full overflow-hidden border shadow-[0_1px_2px_rgba(0,0,0,0.05)]",
                                                                                     shiftOpt.iconBg, "hover:shadow-md",
                                                                                     shiftOpt.border,
                                                                                     isUpdating && "opacity-50 grayscale cursor-not-allowed"
                                                                                 )}
                                                                             >
+                                                                                {/* Photo/Avatar */}
+                                                                                <div className="h-6 w-6 rounded-full bg-white border border-[#c9b896]/30 flex items-center justify-center overflow-hidden shrink-0 shadow-sm">
+                                                                                    {emp.photo ? (
+                                                                                        <img src={emp.photo} className="h-full w-full object-cover" />
+                                                                                    ) : (
+                                                                                        <span className="text-[10px] font-black text-[#8b5a2b]">{emp.username.charAt(0)}</span>
+                                                                                    )}
+                                                                                </div>
+
                                                                                 <div className="flex flex-col min-w-0">
                                                                                     <span className="text-[9px] lg:text-[10px] font-black text-[#3d2c1e] truncate uppercase tracking-tight leading-none mb-0.5">
                                                                                         {emp.username}

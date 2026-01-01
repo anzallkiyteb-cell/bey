@@ -709,33 +709,7 @@ async function initializePayrollTable(month: string) {
 
   const tableName = `paiecurrent_${month}`;
 
-  // Fast path: Check existence and run migrations if table exists
-  try {
-    const check = await pool.query(`SELECT 1 FROM public."${tableName}" LIMIT 1`);
-    if (check.rowCount !== null && check.rowCount >= 0) {
-      // Table exists, ensure it has the latest columns in a single batch
-      try {
-        await pool.query(`
-          ALTER TABLE public."${tableName}" 
-          ADD COLUMN IF NOT EXISTS retard INT DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS prime FLOAT DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS infraction FLOAT DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS doublage FLOAT DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS mise_a_pied FLOAT DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS clock_in VARCHAR(50),
-          ADD COLUMN IF NOT EXISTS clock_out VARCHAR(50),
-          ADD COLUMN IF NOT EXISTS updated BOOLEAN DEFAULT FALSE
-        `);
-        await pool.query(`CREATE INDEX IF NOT EXISTS idx_${tableName}_user_date ON public."${tableName}"(user_id, date)`);
-      } catch (migrationError) {
-        console.error("Migration error:", migrationError);
-      }
-      initializedMonths.add(month);
-      return true;
-    }
-  } catch (e) {
-    // Table likely doesn't exist, proceed to safe initialization
-  }
+  // Ensure table and latest columns exist, then fill gaps if any
 
   const initPromise = (async () => {
     const tableName = `paiecurrent_${month}`;
@@ -806,31 +780,28 @@ async function initializePayrollTable(month: string) {
         console.error("Self-healing schema error:", e);
       }
 
-      const check = await client.query(`SELECT count(*) FROM public."${tableName}"`);
-      if (parseInt(check.rows[0].count) === 0) {
-        const [year, monthIdx] = month.split('_').map(Number);
-        const daysInMonth = new Date(year, monthIdx, 0).getDate();
-        const usersRes = await client.query('SELECT id, username FROM public.users');
+      const [year, monthIdx] = month.split('_').map(Number);
+      const daysInMonth = new Date(year, monthIdx, 0).getDate();
+      const usersRes = await client.query('SELECT id, username FROM public.users');
 
-        const userIds: number[] = [];
-        const usernames: string[] = [];
-        const dates: string[] = [];
+      const userIds: number[] = [];
+      const usernames: string[] = [];
+      const dates: string[] = [];
 
-        for (const user of usersRes.rows) {
-          for (let d = 1; d <= daysInMonth; d++) {
-            userIds.push(user.id);
-            usernames.push(user.username);
-            dates.push(`${year}-${String(monthIdx).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
-          }
+      for (const user of usersRes.rows) {
+        for (let d = 1; d <= daysInMonth; d++) {
+          userIds.push(user.id);
+          usernames.push(user.username);
+          dates.push(`${year}-${String(monthIdx).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
         }
+      }
 
-        if (userIds.length > 0) {
-          await client.query(`
-            INSERT INTO public."${tableName}"(user_id, username, date) 
-            SELECT * FROM unnest($1::int[], $2::text[], $3::date[]) 
-            ON CONFLICT DO NOTHING
-          `, [userIds, usernames, dates]);
-        }
+      if (userIds.length > 0) {
+        await client.query(`
+          INSERT INTO public."${tableName}"(user_id, username, date) 
+          SELECT * FROM unnest($1::int[], $2::text[], $3::date[]) 
+          ON CONFLICT (user_id, date) DO NOTHING
+        `, [userIds, usernames, dates]);
       }
       await client.query('COMMIT');
       initializedMonths.add(month);
