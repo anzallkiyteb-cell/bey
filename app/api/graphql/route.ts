@@ -1150,7 +1150,9 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       return deduct.includes(t);
     };
 
-    let finalPresent = (shiftType === "Repos") ? 0 : 1;
+    let finalPresent = 0;
+    if (userPunches.length > 0) finalPresent = 1;
+    if (shiftType === "Repos") finalPresent = 0;
 
     // Auto-detected absence logic override
     if (isAbsent) finalPresent = 0;
