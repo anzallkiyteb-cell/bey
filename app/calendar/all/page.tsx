@@ -114,7 +114,13 @@ export default function AllSchedulesPlacementPage() {
 
     const depts = useMemo(() => {
         const list = new Set(filteredSchedules.map((s: any) => s.departement || "Autre"))
-        return Array.from(list).sort()
+        return Array.from(list).sort((a: any, b: any) => {
+            // Priority: Chef_Cuisine then Cuisine
+            if (a === "Chef_Cuisine" && b === "Cuisine") return -1;
+            if (a === "Cuisine" && b === "Chef_Cuisine") return 1;
+            // Default alphabetic
+            return a.localeCompare(b);
+        })
     }, [filteredSchedules])
 
     const handleUpdateShift = async (user: any, dayKey: string, newShift: string) => {
