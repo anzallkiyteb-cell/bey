@@ -37,6 +37,7 @@ const GET_ALL_EMPLOYEES = gql`
         cin_photo_front
         cin_photo_back
         is_blocked
+        nbmonth
       }
       clockIn
       clockOut
@@ -158,6 +159,7 @@ function EmployeesContent() {
     photo: "",
     cinPhotoFront: "",
     cinPhotoBack: "",
+    nbmonth: null as number | null,
   })
 
   const [showCinPhotoDialog, setShowCinPhotoDialog] = useState(false)
@@ -197,6 +199,7 @@ function EmployeesContent() {
       cinPhotoFront: p.user.cin_photo_front || "",
       cinPhotoBack: p.user.cin_photo_back || "",
       is_blocked: !!p.user.is_blocked,
+      nbmonth: p.user.nbmonth || null,
       managerId: null
     }));
   }, [data]);
@@ -265,6 +268,7 @@ function EmployeesContent() {
       photo: "",
       cinPhotoFront: "",
       cinPhotoBack: "",
+      nbmonth: null,
     })
   }
 
@@ -383,7 +387,8 @@ function EmployeesContent() {
             zktime_id: formData.zktecoId ? parseInt(formData.zktecoId) : null,
             status: formData.status,
             base_salary: formData.baseSalary ? parseFloat(formData.baseSalary) : 0,
-            photo: formData.photo
+            photo: formData.photo,
+            nbmonth: formData.nbmonth
           }
         }
       });
@@ -426,6 +431,7 @@ function EmployeesContent() {
       photo: employee.photo || "",
       cinPhotoFront: employee.cinPhotoFront || "",
       cinPhotoBack: employee.cinPhotoBack || "",
+      nbmonth: employee.nbmonth || null,
     })
     setShowEditDialog(true)
   }
@@ -447,7 +453,8 @@ function EmployeesContent() {
             zktime_id: formData.zktecoId ? parseInt(formData.zktecoId) : null,
             status: formData.status,
             base_salary: formData.baseSalary ? parseFloat(formData.baseSalary) : 0,
-            photo: formData.photo
+            photo: formData.photo,
+            nbmonth: formData.nbmonth
           }
         }
       })
