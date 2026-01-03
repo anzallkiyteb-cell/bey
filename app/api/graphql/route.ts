@@ -2000,10 +2000,30 @@ const resolvers = {
           const isOngoing = userPunches.length % 2 !== 0;
           shift = determineShift(firstDate, lastDate, isOngoing);
 
-          // Update shiftType for calculation to match the detected shift
-          // This ensures that if they are detected as "Soir", we calculate retard based on 16:00
+          // Update shiftType but prioritize the PLANNED shift if available.
+          // This ensures that if they are planned "Soir" but arrive early (11am), we still use 16:00 as start time (so no retard).
           if (shift && shift !== "Non défini") {
-            shiftType = shift;
+            const detectedShift = shift;
+            const hasPlannedShift = originalShiftType && originalShiftType !== "Repos";
+
+            if (!hasPlannedShift) {
+              shiftType = detectedShift;
+            } else {
+              // Base Priority: Schedule first
+              shift = originalShiftType;
+              shiftType = originalShiftType;
+
+              // EXCEPTION: If scheduled "Soir" but detected "Doublage" with a true Morning start
+              // (e.g. Ghassen starts 07:49 -> Doublage, Nejah starts 11:18 -> Soir)
+              if (originalShiftType === "Soir" && detectedShift === "Doublage") {
+                const startH = getTunisiaHour(firstDate);
+                // Threshold: 11:00 AM. If started before this, it's a true Doublage/Morning start
+                if (startH < 11) {
+                  shift = "Doublage";
+                  shiftType = "Doublage"; // Also update logic to check retard against 07:00, not 16:00
+                }
+              }
+            }
           }
         }
 
@@ -2033,8 +2053,35 @@ const resolvers = {
           }
         }
 
-        const isRetard = !!currentRetardRecord || isLiveRetard;
-        let delay = currentRetardRecord?.reason || liveDelay;
+        // CORRECTION: Even if DB has a retard (from faulty earlier logic), re-verify if it is VALID under new rules
+        // If we have punches, and the shift is Soir (16:00), and entry is 11:18, it shouldn't be retard.
+        let validRetard = isLiveRetard;
+
+        // If DB says retard but live calculation (with corrected shiftType) says NO retard, we trust the corrected logic
+        // EXCEPT if the DB retard is a manual override (which we can't easily distinguish from auto, but usually auto matches format)
+        if (currentRetardRecord) {
+          // Re-check detection with the SAFE shiftType
+          if (hasPunches && sTypeUpper === "SOIR" && clockIn) {
+            // If shift is Soir, and we have punches, verify start time
+            const startHour = 16;
+            const shiftStartTime = new Date(`${dateSQL}T${String(startHour).padStart(2, "0")}:00:00.000+01:00`);
+            const firstD = parseMachineDate(userPunches[0].device_time);
+
+            if (firstD <= shiftStartTime) {
+              // He arrived BEFORE start time. This DB retard is INVALID (legacy from bug).
+              validRetard = false;
+            } else {
+              validRetard = true;
+            }
+          } else {
+            // Trust DB for other cases (or if it's manual)
+            validRetard = true;
+          }
+        }
+
+        const isRetard = validRetard;
+        // If we invalidated the retard, clear the delay string
+        let delay = isRetard ? (currentRetardRecord?.reason || liveDelay) : null;
         let currentInfraction = 0;
 
         // Calculate live infraction if it's a retard
