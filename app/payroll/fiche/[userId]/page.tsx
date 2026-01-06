@@ -113,8 +113,8 @@ const UPDATE_PAYROLL_RECORD = gql`
 `
 
 const PAY_USER = gql`
-  mutation PayUser($month: String!, $userId: ID!) {
-    payUser(month: $month, userId: $userId)
+  mutation PayUser($month: String!, $userId: ID!, $netSalary: Float) {
+    payUser(month: $month, userId: $userId, netSalary: $netSalary)
   }
 `
 
@@ -279,7 +279,13 @@ export default function UserFichePage() {
     const handlePay = async () => {
         if (!userId || paying || unpaying) return
         try {
-            await payUser({ variables: { month: selectedMonth, userId: String(userId) } })
+            await payUser({
+                variables: {
+                    month: selectedMonth,
+                    userId: String(userId),
+                    netSalary: parseFloat(stats.netSalary.toFixed(3))
+                }
+            })
             await refetchPayroll()
         } catch (err) { console.error("Pay Error:", err) }
     }
@@ -516,6 +522,21 @@ export default function UserFichePage() {
                             <Button onClick={handleSync} disabled={syncing || stats.isPaid} className="bg-[#8b5a2b] text-white">
                                 <RefreshCw className={cn("h-5 w-5 mr-2", syncing && "animate-spin")} /> {stats.isPaid ? "Verrouillé" : "Sync"}
                             </Button>
+
+                            <Button
+                                onClick={stats.isPaid ? handleUnpay : handlePay}
+                                disabled={paying || unpaying}
+                                className={cn(
+                                    "font-bold transition-all flex items-center gap-2 px-6",
+                                    stats.isPaid
+                                        ? "bg-red-50 text-red-600 border-2 border-red-200 hover:bg-red-100"
+                                        : "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md"
+                                )}
+                            >
+                                {stats.isPaid ? <RotateCcw className="h-5 w-5" /> : <Wallet className="h-5 w-5" />}
+                                {stats.isPaid ? "Annuler le paiement" : "Payer"}
+                            </Button>
+
                             <Button onClick={() => window.print()} variant="outline" className="border-[#c9b896] text-[#8b5a2b]">
                                 <Printer className="h-5 w-5 mr-2" /> Imprimer
                             </Button>

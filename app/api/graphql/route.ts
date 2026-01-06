@@ -291,7 +291,7 @@ const typeDefs = `#graphql
     deleteOldNotifications: Boolean
     pardonLate(userId: ID!, date: String!): PayrollRecord
     changePassword(userId: ID!, oldPassword: String!, newPassword: String!): Boolean
-    payUser(month: String!, userId: ID!): Boolean
+    payUser(month: String!, userId: ID!, netSalary: Float): Boolean
     unpayUser(month: String!, userId: ID!): Boolean
     updateNbMonth(userId: ID!, nbmonth: Int!): Boolean
   }
@@ -3396,15 +3396,29 @@ const resolvers = {
       const final = await pool.query(`SELECT * FROM public."${tableName}" WHERE id = $1`, [record.id]);
       return { ...final.rows[0], date: formatDateLocal(final.rows[0].date) };
     },
-    payUser: async (_: any, { month, userId }: { month: string, userId: string }, context: any) => {
+    payUser: async (_: any, { month, userId, netSalary }: { month: string, userId: string, netSalary?: number }, context: any) => {
       const tableName = `paiecurrent_${month}`;
 
       try {
-        // Update all records for this user in this month to paid = true
+        // 1. Mark all records for this user in this month as paid
         await pool.query(
           `UPDATE public."${tableName}" SET paid = true WHERE user_id = $1`,
           [userId]
         );
+
+        // 2. If netSalary provided, save it to the first record of the month for this user
+        if (netSalary !== undefined && netSalary !== null) {
+          const firstRecord = await pool.query(
+            `SELECT id FROM public."${tableName}" WHERE user_id = $1 ORDER BY date ASC LIMIT 1`,
+            [userId]
+          );
+          if (firstRecord.rows.length > 0) {
+            await pool.query(
+              `UPDATE public."${tableName}" SET salaire_net = $1 WHERE id = $2`,
+              [netSalary, firstRecord.rows[0].id]
+            );
+          }
+        }
 
         // Get username for notification
         const userRes = await pool.query('SELECT username FROM public.users WHERE id = $1', [userId]);
@@ -3414,7 +3428,7 @@ const resolvers = {
         await createNotification(
           'payment',
           "Paiement Effectué",
-          `Le salaire de ${username} pour ${month.replace('_', '/')} a été payé.`,
+          `Le salaire de ${username} pour ${month.replace('_', '/')} a été payé${netSalary ? ` (${netSalary} DT)` : ''}.`,
           userId,
           context.userDone
         );
@@ -3430,9 +3444,15 @@ const resolvers = {
       const tableName = `paiecurrent_${month}`;
 
       try {
-        // Update all records for this user in this month to paid = false
+        // 1. Mark all records for this user in this month as NOT paid
         await pool.query(
           `UPDATE public."${tableName}" SET paid = false WHERE user_id = $1`,
+          [userId]
+        );
+
+        // 2. Reset the frozen net salary to 0 to enable automatic calculation again
+        await pool.query(
+          `UPDATE public."${tableName}" SET salaire_net = 0 WHERE user_id = $1`,
           [userId]
         );
 
