@@ -48,6 +48,7 @@ const typeDefs = `#graphql
     remarque: String
     is_blocked: Boolean
     schedule: UserSchedule
+    absentDaysCount: Int
   }
 
   type AttendanceRecord {
@@ -2075,7 +2076,7 @@ const resolvers = {
 
       // Parallelize Fetching with optimized index-friendly queries
       const nextDateSQL = formatDateLocal(new Date(logicalDay.getTime() + 86400000));
-      const [usersRes, schedulesRes, allPunches, retardsRes, absentsRes, payrollRes] = await Promise.all([
+      const [usersRes, schedulesRes, allPunches, retardsRes, absentsRes, payrollRes, monthAbsentsRes] = await Promise.all([
         pool.query(`
           SELECT id, username, role, status, zktime_id, "département" as departement, email, phone, cin, base_salary, photo, is_blocked, permissions, nbmonth 
           FROM public.users 
@@ -2085,7 +2086,8 @@ const resolvers = {
         fetchDayPunches(logicalDay),
         pool.query('SELECT user_id, reason FROM public.retards WHERE date >= $1 AND date < $2', [dateSQL, nextDateSQL]),
         pool.query('SELECT user_id, reason, type FROM public.absents WHERE date >= $1 AND date < $2', [dateSQL, nextDateSQL]),
-        pool.query(`SELECT * FROM public."${payrollTableName}" WHERE date = $1`, [dateSQL])
+        pool.query(`SELECT * FROM public."${payrollTableName}" WHERE date = $1`, [dateSQL]),
+        pool.query(`SELECT user_id, COUNT(*) as absent_count FROM public."${payrollTableName}" WHERE present = 0 AND date <= $1 GROUP BY user_id`, [dateSQL])
       ]);
 
 
@@ -2111,6 +2113,9 @@ const resolvers = {
 
       const dayPayrollMap = new Map<number, any>();
       payrollRes.rows.forEach((p: any) => dayPayrollMap.set(Number(p.user_id), p));
+
+      const monthAbsentsMap = new Map<number, number>();
+      monthAbsentsRes.rows.forEach((r: any) => monthAbsentsMap.set(Number(r.user_id), parseInt(r.absent_count)));
 
       // Group punches by user_id for O(1) lookup inside the loop
       const punchesByUser = new Map();
@@ -2365,7 +2370,8 @@ const resolvers = {
           remarque: userPayroll ? userPayroll.remarque : (isRetard ? delay : null),
           lastPunch: userPunches.length > 0 ? userPunches[userPunches.length - 1].device_time : null,
           is_blocked: !!user.is_blocked,
-          schedule
+          schedule,
+          absentDaysCount: monthAbsentsMap.get(uId) || 0
         };
       });
 

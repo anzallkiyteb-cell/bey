@@ -42,6 +42,7 @@ const GET_PERSONNEL_STATUS = gql`
       delay
       infraction
       remarque
+      absentDaysCount
     }
   }
 `;
@@ -732,6 +733,7 @@ function AttendanceContent() {
                                     : "bg-rose-50 text-rose-700 border-rose-200"
                               )}>
                                 {person.state}
+                                {person.state === "Absent" && person.absentDaysCount > 0 && ` ${person.absentDaysCount}`}
                               </span>
                               {person.state === "Retard" && person.delay && (
                                 <span className="text-[10px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-200 animate-pulse whitespace-nowrap">
@@ -791,6 +793,7 @@ function AttendanceContent() {
                                 : "bg-rose-50 text-rose-700 border-rose-200"
                           )}>
                             {person.state}
+                            {person.state === "Absent" && person.absentDaysCount > 0 && ` ${person.absentDaysCount}`}
                           </span>
                           {person.state === "Retard" && person.delay && (
                             <span className="text-[9px] font-black text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-200 animate-pulse whitespace-nowrap">
