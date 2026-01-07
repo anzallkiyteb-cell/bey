@@ -38,6 +38,7 @@ const GET_ALL_EMPLOYEES = gql`
         cin_photo_back
         is_blocked
         nbmonth
+        is_coupure
       }
       clockIn
       clockOut
@@ -425,7 +426,8 @@ function EmployeesContent() {
             status: formData.status,
             base_salary: formData.baseSalary ? parseFloat(formData.baseSalary) : 0,
             photo: formData.photo,
-            nbmonth: formData.nbmonth
+            nbmonth: formData.nbmonth,
+            is_coupure: formData.isCoupure
           }
         }
       });
@@ -512,7 +514,8 @@ function EmployeesContent() {
             status: formData.status,
             base_salary: formData.baseSalary ? parseFloat(formData.baseSalary) : 0,
             photo: formData.photo,
-            nbmonth: formData.nbmonth
+            nbmonth: formData.nbmonth,
+            is_coupure: formData.isCoupure
           }
         }
       })

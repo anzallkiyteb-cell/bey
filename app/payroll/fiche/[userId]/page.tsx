@@ -83,8 +83,8 @@ const INIT_PAYROLL = gql`
 `
 
 const SYNC_ATTENDANCE = gql`
-  mutation SyncAttendance($date: String) {
-    syncAttendance(date: $date)
+  mutation SyncAttendance($date: String, $userId: ID, $month: String) {
+    syncAttendance(date: $date, userId: $userId, month: $month)
   }
 `
 
@@ -272,7 +272,12 @@ export default function UserFichePage() {
                 }
             })
         }
-        await syncAttendance({ variables: { date: format(new Date(), 'yyyy-MM-dd') } })
+        await syncAttendance({
+            variables: {
+                userId: String(userId),
+                month: selectedMonth
+            }
+        })
         await refetchPayroll()
     }
 

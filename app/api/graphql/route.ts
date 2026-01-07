@@ -48,7 +48,7 @@ const typeDefs = `#graphql
     remarque: String
     is_blocked: Boolean
     schedule: UserSchedule
-    absentDaysCount: Int
+    absentDaysCount: Float
   }
 
   type AttendanceRecord {
@@ -173,7 +173,7 @@ const typeDefs = `#graphql
     user_id: ID
     username: String
     date: String
-    present: Int
+    present: Float
     acompte: Float
     extra: Float
     prime: Float
@@ -196,14 +196,14 @@ const typeDefs = `#graphql
   type PerformanceStats {
     user: User!
     totalHours: Float
-    daysWorked: Int
+    daysWorked: Float
     avgHoursPerDay: Float
     totalRetard: Int
-    onTimeDays: Int
+    onTimeDays: Float
   }
 
   input PayrollInput {
-    present: Int
+    present: Float
     acompte: Float
     extra: Float
     prime: Float
@@ -273,7 +273,7 @@ const typeDefs = `#graphql
     addAbsent(user_id: ID!, date: String!, type: String!, reason: String): Absent
     deleteAbsent(id: ID!): Boolean
     updateAbsent(id: ID!, type: String, reason: String): Absent
-    syncAttendance(date: String): Boolean
+    syncAttendance(date: String, userId: ID, month: String): Boolean
     addExtra(user_id: ID!, montant: Float!, date_extra: String!, motif: String): Extra
     deleteExtra(id: ID!): Boolean
     updateExtra(id: ID!, montant: Float, motif: String, date_extra: String): Extra
@@ -584,12 +584,26 @@ const ensureTableIndexes = async (tableName: string) => {
   } catch (e) { /* ignore if table doesn't exist yet */ }
 };
 
+let usersSchemaPromise: Promise<void> | null = null;
+const ensureUsersSchema = async () => {
+  if (usersSchemaPromise) return usersSchemaPromise;
+  usersSchemaPromise = (async () => {
+    try {
+      await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_coupure BOOLEAN DEFAULT false');
+    } catch (e) {
+      console.error("ensureUsersSchema error:", e);
+    }
+  })();
+  return usersSchemaPromise;
+};
+
 let staticIndexesPromise: Promise<void> | null = null;
 const ensureStaticIndexes = async () => {
   if (staticIndexesPromise) return staticIndexesPromise;
 
   staticIndexesPromise = (async () => {
     try {
+      await ensureUsersSchema();
       const queries = [
         `CREATE INDEX IF NOT EXISTS idx_users_username ON public.users(username)`,
         `CREATE INDEX IF NOT EXISTS idx_users_departement ON public.users("département")`,
@@ -868,7 +882,10 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
 
   const monthKey = dateSQL.substring(0, 7).replace('-', '_');
   // Need to ensure table exists
-  await initializePayrollTable(monthKey);
+  await Promise.all([
+    initializePayrollTable(monthKey),
+    ensureUsersSchema()
+  ]);
 
   const dayCols = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
   const dayCol = dayCols[dayOfWeekIndex];
@@ -879,7 +896,7 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
   const subParams = specificUserId ? [dateSQL, nextDateSQL, specificUserId] : [dateSQL, nextDateSQL];
 
   const [usersRes, schedulesRes, allPunches, retardsRes, absentsRes, advancesRes, extrasRes, doublagesRes, notificationsRes] = await Promise.all([
-    pool.query(specificUserId ? 'SELECT id, username, "département" as departement FROM public.users WHERE id = $1' : 'SELECT id, username, "département" as departement FROM public.users', specificUserId ? [specificUserId] : []),
+    pool.query(specificUserId ? 'SELECT id, username, "département" as departement, is_coupure FROM public.users WHERE id = $1' : 'SELECT id, username, "département" as departement, is_coupure FROM public.users', specificUserId ? [specificUserId] : []),
     pool.query(specificUserId ? 'SELECT * FROM public.user_schedules WHERE user_id = $1' : 'SELECT * FROM public.user_schedules', specificUserId ? [specificUserId] : []),
     fetchDayPunches(logicalDay, specificUserId),
     pool.query(`SELECT * FROM public.retards WHERE date >= $1 AND date < $2 ${userClause}`, subParams),
@@ -994,33 +1011,30 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
     }
 
     // MODE COUPURE LOGIC
-    // (using already fetched 'schedule')
-    const isCoupure = schedule?.is_coupure === true;
+    // (using already fetched 'schedule' and 'user' record)
+    const isCoupure = (!!schedule?.is_coupure) || (!!user.is_coupure);
     let coupureP1In = null, coupureP1Out = null, coupureP2In = null, coupureP2Out = null;
 
     if (isCoupure && userPunches.length > 0) {
       // User has 4 expected fingers. Let's try to map them to P1 and P2 segments.
       // Reference times from schedule
-      const s_p1_in = schedule.p1_in || "08:00";
-      const s_p1_out = schedule.p1_out || "12:00";
-      const s_p2_in = schedule.p2_in || "14:00";
-      const s_p2_out = schedule.p2_out || "18:00";
+      let cutoffHour = 13;
+      if (user.departement === 'Chef_Cuisine') cutoffHour = 16;
 
       // Match punches to segments.
-      // Logic: Seg 1 (Morning) is typically before 13:00, Seg 2 (Afternoon) after 13:00.
-      const morningPunches = userPunches.filter((p: any) => getTunisiaHour(parseMachineDate(p.device_time)) < 13);
-      const afternoonPunches = userPunches.filter((p: any) => getTunisiaHour(parseMachineDate(p.device_time)) >= 13);
+      const p1_punches = userPunches.filter((p: any) => getTunisiaHour(parseMachineDate(p.device_time)) < cutoffHour);
+      const p2_punches = userPunches.filter((p: any) => getTunisiaHour(parseMachineDate(p.device_time)) >= cutoffHour);
 
-      if (morningPunches.length > 0) {
-        coupureP1In = formatTime(morningPunches[0].device_time);
-        if (morningPunches.length > 1) {
-          coupureP1Out = formatTime(morningPunches[morningPunches.length - 1].device_time);
+      if (p1_punches.length > 0) {
+        coupureP1In = formatTime(p1_punches[0].device_time);
+        if (p1_punches.length > 1) {
+          coupureP1Out = formatTime(p1_punches[p1_punches.length - 1].device_time);
         }
       }
-      if (afternoonPunches.length > 0) {
-        coupureP2In = formatTime(afternoonPunches[0].device_time);
-        if (afternoonPunches.length > 1) {
-          coupureP2Out = formatTime(afternoonPunches[afternoonPunches.length - 1].device_time);
+      if (p2_punches.length > 0) {
+        coupureP2In = formatTime(p2_punches[0].device_time);
+        if (p2_punches.length > 1) {
+          coupureP2Out = formatTime(p2_punches[p2_punches.length - 1].device_time);
         }
       }
     }
@@ -1080,7 +1094,9 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
             reason = "Absence injustifiée (Chef)";
           }
         }
-      } else if (isCoupure) {
+      }
+
+      if (isCoupure && user.departement !== 'Chef_Cuisine') {
         // Evaluate 2-part lateness
         const s_p1_in = schedule.p1_in || "08:00";
         const s_p2_in = schedule.p2_in || "14:00";
@@ -1117,23 +1133,26 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
             isAbsent = true;
             reason = "Absence injustifiée (Coupure)";
           }
-        } else {
-          // Partial presence logic: 0.5 for each completed segment
-          let presenceScore = 0;
-          if (coupureP1In && coupureP1Out) presenceScore += 0.5;
-          if (coupureP2In && coupureP2Out) presenceScore += 0.5;
+        }
+      }
 
-          if (presenceScore < 1 && isPastDay) {
-            if (presenceScore === 0) isAbsent = true;
-            else {
-              if (isPastDay) {
-                if (!coupureP1In || !coupureP1Out) reason = (reason ? reason + " + " : "") + "P1 Absent";
-                if (!coupureP2In || !coupureP2Out) reason = (reason ? reason + " + " : "") + "P2 Absent";
-              }
-            }
+      // Mutual presence score check for ALL coupure users (including Chefs)
+      if (isCoupure && userPunches.length > 0) {
+        let presenceScore = 0;
+        if (coupureP1In) presenceScore += 0.5;
+        if (coupureP2In) presenceScore += 0.5;
+
+        if (presenceScore < 1 && isPastDay) {
+          if (presenceScore === 0) {
+            isAbsent = true;
+          } else {
+            if (!coupureP1In) reason = (reason ? reason + " + " : "") + "P1 Absent";
+            if (!coupureP2In) reason = (reason ? reason + " + " : "") + "P2 Absent";
           }
         }
-      } else {
+      }
+
+      if (!isCoupure && user.departement !== 'Chef_Cuisine') {
         const sTypeUpper = (shiftType || "").toUpperCase();
         let startHour = 7;
         if (sTypeUpper === "SOIR") startHour = 16;
@@ -1188,34 +1207,27 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
     // Only update tables if NOT manually updated
     if (!isManuallyUpdated) {
       if (shiftType !== "Repos") {
+        // Clear potential conflictual records before re-inserting
+        await pool.query('DELETE FROM public.absents WHERE user_id = $1 AND date = $2', [user.id, dateSQL]);
+        await pool.query('DELETE FROM public.retards WHERE date::date = $1 AND user_id = $2', [dateSQL, user.id]);
+
         if (isAbsent) {
-          await Promise.all([
-            pool.query(`
+          await pool.query(`
               INSERT INTO public.absents(user_id, username, date, type, reason) 
               VALUES($1, $2, $3, $4, $5)
               ON CONFLICT (user_id, date) DO UPDATE SET
               type = EXCLUDED.type,
               reason = EXCLUDED.reason
-            `, [user.id, user.username, dateSQL, "Absence", reason]),
-            pool.query('DELETE FROM public.retards WHERE date >= $1 AND date < $2 AND user_id = $3', [dateSQL, nextDateSQL, user.id])
-          ]);
+            `, [user.id, user.username, dateSQL, "Absence", reason]);
         } else if (isRetard) {
           const punchTime = userPunches[0].device_time;
-          await Promise.all([
-            pool.query(`
+          await pool.query(`
               INSERT INTO public.retards(user_id, username, date, reason) 
               VALUES($1, $2, $3, $4)
               ON CONFLICT (user_id, (date::date)) DO UPDATE SET
               date = EXCLUDED.date,
               reason = EXCLUDED.reason
-            `, [user.id, user.username, punchTime, reason]),
-            pool.query("DELETE FROM public.absents WHERE user_id = $1 AND date = $2 AND (type = 'Absence' OR type = 'Injustifié')", [user.id, dateSQL])
-          ]);
-        } else {
-          await Promise.all([
-            pool.query("DELETE FROM public.absents WHERE user_id = $1 AND date = $2 AND (type = 'Absence' OR type = 'Injustifié')", [user.id, dateSQL]),
-            pool.query('DELETE FROM public.retards WHERE date >= $1 AND date < $2 AND user_id = $3', [dateSQL, nextDateSQL, user.id])
-          ]);
+            `, [user.id, user.username, punchTime, reason]);
         }
       }
     }
@@ -1232,8 +1244,8 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
     const currentRetard = retardsMap.get(userIdNum);
 
     let retardMins = calculatedRetardMins;
-    if (currentRetard && retardMins === 0) {
-      // Fallback to parsing if we have a DB record but didn't calculate in this run
+    // Only fallback to DB record if we DIDN'T calculate a retard in this run
+    if (!isRetard && currentRetard) {
       const m = currentRetard.reason || "";
       if (m.includes("h")) {
         const hMatch = m.match(/(\d+)h/);
@@ -1243,7 +1255,7 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
         retardMins = h * 60 + mins;
       } else {
         const match = m.match(/(\d+)/);
-        if (match) retardMins = parseInt(match[1]);
+        retardMins = match ? parseInt(match[1]) : 0;
       }
     }
 
@@ -1273,33 +1285,40 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       else dayExtra += parseFloat(r.montant || 0);
     });
 
+    // Priority: use NEWLY calculated values if we have punches or an auto-detected status
     let finalPresent = 0;
     if (userPunches.length > 0) {
       if (isCoupure) {
         let presenceScore = 0;
-        if (coupureP1In && coupureP1Out) presenceScore += 0.5;
-        if (coupureP2In && coupureP2Out) presenceScore += 0.5;
+        if (coupureP1In) presenceScore += 0.5;
+        if (coupureP2In) presenceScore += 0.5;
         finalPresent = presenceScore;
       } else {
         finalPresent = 1;
       }
     }
 
-    // Use dayExtra to force present = 0 as requested by user
+    // Manual or Auto overlays
     if (dayExtra > 0) finalPresent = 0;
-
     if (shiftType === "Repos") finalPresent = 0;
-
-    // Auto-detected absence logic override
     if (isAbsent) finalPresent = 0;
 
-    if (currentAbsent) {
-      if (isPresentType(currentAbsent.type)) finalPresent = 1;
-      else if (isAbsentType(currentAbsent.type)) finalPresent = 0;
-      else finalPresent = 1;
+    // overlay from absents table (manual overrides)
+    if (currentAbsent && (isAbsentType(currentAbsent.type) || isPresentType(currentAbsent.type))) {
+      // Only let the DB record override if we HAVE NO punches or if it's a specific manual type like Mise a pied
+      const isManualOverrideType = currentAbsent.type === 'Mise à pied' || currentAbsent.type === 'Chômage' || currentAbsent.type === 'Accident';
+      if (userPunches.length === 0 || isManualOverrideType) {
+        if (isAbsentType(currentAbsent.type)) finalPresent = 0;
+        else finalPresent = 1;
+      }
     }
 
-    let finalRemark = currentRetard?.reason || (currentAbsent ? currentAbsent.reason : (isAbsent || isRetard ? reason : null));
+    // Final Remark prioritization
+    let finalRemark = (isAbsent || isRetard) ? reason : null;
+    if (!finalRemark) {
+      finalRemark = currentRetard?.reason || currentAbsent?.reason || null;
+    }
+
     let autoInfraction = (retardMins > 10) ? 30 : 0;
     const totalAdvance = advancesMap.get(userIdNum) || 0;
     let dayDoublage = doublagesMap.get(userIdNum) || 0;
@@ -1371,6 +1390,27 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
   }
 
   invalidateCache();
+}
+
+/**
+ * Automatically re-sync historical data for the current month when 
+ * critical settings (is_coupure, schedule) are changed.
+ */
+async function syncUserMonthAutomatically(userId: string) {
+  try {
+    const now = getLogicalDate(new Date());
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    const currentDay = now.getDate();
+
+    // Sequential sync from start of month up to today
+    for (let d = 1; d <= currentDay; d++) {
+      const dStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      await recomputePayrollForDate(dStr, userId);
+    }
+  } catch (err) {
+    console.error("Auto-sync error for user:", userId, err);
+  }
 }
 
 // One-time migration to add clock_in and clock_out columns to all existing payroll tables
@@ -1913,19 +1953,20 @@ const resolvers = {
         const statsMap = new Map<string, { totalMins: number, daysWorked: number, totalRetard: number, onTimeDays: number, totalInfractions: number }>();
 
         payroll.forEach((row: any) => {
-          if (row.present !== 1) return;
+          const presentVal = parseFloat(row.present || 0);
+          if (presentVal <= 0) return;
           const uid = String(row.user_id);
           if (!statsMap.has(uid)) {
             statsMap.set(uid, { totalMins: 0, daysWorked: 0, totalRetard: 0, onTimeDays: 0, totalInfractions: 0 });
           }
           const stats = statsMap.get(uid)!;
-          stats.daysWorked += 1;
+          stats.daysWorked += presentVal;
           stats.totalRetard += (row.retard || 0);
           stats.totalInfractions += (row.infraction || 0);
 
-          // Disciplined day: 0 retard AND 0 infraction
+          // Disciplined day: 0 retard AND 0 infraction -> proportional onTimeDays
           if ((row.retard || 0) === 0 && (row.infraction || 0) === 0) {
-            stats.onTimeDays += 1;
+            stats.onTimeDays += presentVal;
           }
 
           if (row.clock_in && row.clock_out) {
@@ -2078,7 +2119,7 @@ const resolvers = {
       const nextDateSQL = formatDateLocal(new Date(logicalDay.getTime() + 86400000));
       const [usersRes, schedulesRes, allPunches, retardsRes, absentsRes, payrollRes, monthAbsentsRes] = await Promise.all([
         pool.query(`
-          SELECT id, username, role, status, zktime_id, "département" as departement, email, phone, cin, base_salary, photo, is_blocked, permissions, nbmonth 
+          SELECT id, username, role, status, zktime_id, "département" as departement, email, phone, cin, base_salary, photo, is_blocked, permissions, nbmonth, is_coupure 
           FROM public.users 
           ORDER BY id ASC
         `),
@@ -2087,7 +2128,7 @@ const resolvers = {
         pool.query('SELECT user_id, reason FROM public.retards WHERE date >= $1 AND date < $2', [dateSQL, nextDateSQL]),
         pool.query('SELECT user_id, reason, type FROM public.absents WHERE date >= $1 AND date < $2', [dateSQL, nextDateSQL]),
         pool.query(`SELECT * FROM public."${payrollTableName}" WHERE date = $1`, [dateSQL]),
-        pool.query(`SELECT user_id, COUNT(*) as absent_count FROM public."${payrollTableName}" WHERE present = 0 AND date <= $1 GROUP BY user_id`, [dateSQL])
+        pool.query(`SELECT user_id, SUM(1 - present) as absent_count FROM public."${payrollTableName}" WHERE present < 1 AND date <= $1 GROUP BY user_id`, [dateSQL])
       ]);
 
 
@@ -2397,16 +2438,21 @@ const resolvers = {
         await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS nbmonth INT');
         await pool.query('ALTER TABLE public.users ALTER COLUMN nbmonth DROP NOT NULL');
         await pool.query('ALTER TABLE public.users ALTER COLUMN zktime_id DROP NOT NULL');
+        await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_coupure BOOLEAN DEFAULT false');
       } catch (e) { }
 
-      const { username, email, phone, cin, departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth } = input;
+      const { username, email, phone, cin, departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure } = input;
       const res = await pool.query(
-        `INSERT INTO public.users(username, email, phone, cin, "département", role, zktime_id, status, base_salary, photo, is_blocked, nbmonth)
-         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-         RETURNING id, username, email, phone, cin, "département" as departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth`,
-        [username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false, nbmonth || null]
+        `INSERT INTO public.users(username, email, phone, cin, "département", role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure)
+         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         RETURNING id, username, email, phone, cin, "département" as departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure`,
+        [username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false, nbmonth || null, is_coupure || false]
       );
       const newUser = res.rows[0];
+
+      // Auto-sync for new user month
+      await syncUserMonthAutomatically(newUser.id);
+
       await createNotification('system', "Action Administrative: Nouvel Employé", `L'employé ${newUser.username} a été ajouté au système.`, newUser.id, context.userDone, `/employees?userId=${newUser.id}`);
       return { ...newUser, is_blocked: !!newUser.is_blocked };
     },
@@ -2416,17 +2462,22 @@ const resolvers = {
         await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT false');
         await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS nbmonth INT');
         await pool.query('ALTER TABLE public.users ALTER COLUMN nbmonth DROP NOT NULL');
+        await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_coupure BOOLEAN DEFAULT false');
       } catch (e) { }
 
-      const { username, email, phone, cin, departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth } = input;
+      const { username, email, phone, cin, departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure } = input;
       const res = await pool.query(
         `UPDATE public.users
-          SET username = $2, email = $3, phone = $4, cin = $5, "département" = $6, role = $7, zktime_id = $8, status = $9, base_salary = $10, photo = $11, is_blocked = $12, nbmonth = $13
+          SET username = $2, email = $3, phone = $4, cin = $5, "département" = $6, role = $7, zktime_id = $8, status = $9, base_salary = $10, photo = $11, is_blocked = $12, nbmonth = $13, is_coupure = $14
           WHERE id = $1
-          RETURNING id, username, email, phone, cin, "département" as departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth`,
-        [id, username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false, nbmonth || null]
+          RETURNING id, username, email, phone, cin, "département" as departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure`,
+        [id, username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false, nbmonth || null, is_coupure || false]
       );
       const updatedUser = res.rows[0];
+
+      // Auto-sync if Mode Coupure changed
+      await syncUserMonthAutomatically(id);
+
       await createNotification('system', "Action Administrative: Profil Mis à Jour", `Le profil de ${updatedUser.username} a été mis à jour par un administrateur.`, updatedUser.id, context.userDone, `/employees?userId=${updatedUser.id}`);
       return { ...updatedUser, is_blocked: !!updatedUser.is_blocked };
     },
@@ -2650,6 +2701,10 @@ const resolvers = {
           ]
         );
         const row = res.rows[0];
+
+        // Auto-sync current month since schedule changed
+        await syncUserMonthAutomatically(userId);
+
         await createNotification('schedule', "Emploi du temps modifié", `L'emploi du temps de ${row.username} a été mis à jour.`, userId, context.userDone);
         return row;
       }
@@ -3243,22 +3298,57 @@ const resolvers = {
         return res.rows[0];
       }
     },
-    syncAttendance: async (_: any, { date }: { date?: string }) => {
+    syncAttendance: async (_: any, { date, userId, month }: { date?: string, userId?: string, month?: string }) => {
       // Monthly Cleanup Check
       const now = new Date();
       if (now.getDate() === 1 || Math.random() < 0.05) {
         await cleanOldNotifications();
       }
 
+      if (userId && month) {
+        // Targeted Full-Month sync for one user
+        const tableName = `paiecurrent_${month}`;
+        if (!/^\d{4}_\d{2}$/.test(month)) throw new Error("Format de mois invalide");
+
+        const [y, mIdx] = month.split('_').map(Number);
+        const daysInMonth = new Date(y, mIdx, 0).getDate();
+        const start = `${y}-${String(mIdx).padStart(2, '0')}-01`;
+        const endDay = new Date(y, mIdx, 1);
+        const end = endDay.toISOString().split('T')[0];
+
+        // Aggressive cleanup: remove all non-manual overlay records for this user/month
+        await pool.query(`
+          DELETE FROM public.absents 
+          WHERE user_id = $1 
+          AND date >= $2 AND date < $3 
+          AND (reason IS NULL OR reason NOT LIKE 'Manual:%')
+        `, [userId, start, end]);
+
+        await pool.query(`
+          DELETE FROM public.retards 
+          WHERE user_id = $1 
+          AND date >= $2 AND date < $3 
+          AND (reason IS NULL OR reason NOT LIKE 'Manual:%')
+        `, [userId, start, end]);
+
+        for (let d = 1; d <= daysInMonth; d++) {
+          const dStr = `${y}-${String(mIdx).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          await recomputePayrollForDate(dStr, String(userId));
+        }
+        invalidateCache();
+        return true;
+      }
+
       const todayStr = date || formatDateLocal(new Date()) as string;
       const nowTs = Date.now();
       const lastSync = lastSyncThrottle.get(todayStr);
       if (lastSync && nowTs - lastSync < 60000) { // Throttle: 1 minute
-        return true;
+        // If it's a manual date, bypass throttle
+        if (!date) return true;
       }
-      lastSyncThrottle.set(todayStr, nowTs);
+      if (!date) lastSyncThrottle.set(todayStr, nowTs);
 
-      // Only sync Today and Yesterday for performance.
+      // Default: Only sync Today and Yesterday for performance.
       const daysToSync = 2;
       const syncPromises = [];
       const baseDate = new Date(todayStr + 'T12:00:00');
