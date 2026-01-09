@@ -1,7 +1,6 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
 // Use system fonts locally to avoid external font requests during dev
-import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 
 // Intentionally not using `next/font/google` in dev to prevent external
@@ -39,7 +38,6 @@ export default function RootLayout({
         <Providers>
           {children}
         </Providers>
-        <Analytics />
       </body>
     </html>
   )

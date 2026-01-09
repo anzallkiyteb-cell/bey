@@ -26,15 +26,20 @@ const poolConfig = {
 };
 
 // Singleton initialization
-const pool = global.pgPool || new Pool(poolConfig);
+let pool: Pool;
+if (global.pgPool) {
+    pool = global.pgPool;
+} else {
+    pool = new Pool(poolConfig);
 
-if (!isProd) {
-    global.pgPool = pool;
+    // Error handling - ONLY attach once per pool instance
+    pool.on('error', (err: Error) => {
+        console.error('[Database] Unexpected pool error:', err);
+    });
+
+    if (!isProd) {
+        global.pgPool = pool;
+    }
 }
-
-// Error handling
-pool.on('error', (err: Error) => {
-    console.error('[Database] Unexpected pool error:', err);
-});
 
 export default () => pool;

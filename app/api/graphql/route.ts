@@ -246,6 +246,7 @@ const typeDefs = `#graphql
     getTopPerformers(month: String!): [PerformanceStats]
     login(username: String!, password: String!): LoginResult
     getCinCard(userId: ID!): CardCin
+    getUserPhoto(userId: ID!): User
     getNotifications(userId: ID, limit: Int): [Notification]
   }
 
@@ -968,7 +969,7 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
 
   // Process all users in parallel to minimize round-trip latency
   const pendingNotifications: any[] = [];
-  await Promise.all(users.map(async (user: any) => {
+  const usersData = await Promise.all(users.map(async (user: any) => {
     const userIdNum = Number(user.id);
     let userPunches = punchesByUser.get(userIdNum) || [];
     userPunches.sort((a: any, b: any) => new Date(a.device_time).getTime() - new Date(b.device_time).getTime());
@@ -1402,33 +1403,49 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
     const isManuallyUpdatedInDB = !!updatedFlagsMap.get(userIdNum);
     const forceUpdated = isManuallyUpdatedInDB || dayExtra > 0;
 
+    return {
+      finalPresent, totalAdvance, dayExtra, dayPrime, dayInfraction, dayDoublage, miseAPiedDays, retardMins, finalRemark,
+      userId: user.id, dateSQL, username: user.username, clockIn, clockOut, forceUpdated,
+      coupureP1In, coupureP1Out, coupureP2In, coupureP2Out
+    };
+  }));
+
+  // BATCH UPDATE PAYROLL TABLE
+  if (usersData.length > 0) {
+    const val = (key: string) => usersData.map((d: any) => d[key]);
     await pool.query(
-      `INSERT INTO public.\"${payrollTableName}\"(user_id, username, date, present, acompte, extra, prime, infraction, doublage, mise_a_pied, retard, remarque, clock_in, clock_out, updated, p1_in, p1_out, p2_in, p2_out)
-        VALUES($10, $12, $11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, $15, $16, $17, $18, $19)
-         ON CONFLICT(user_id, date) DO UPDATE SET
-          present = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".present ELSE EXCLUDED.present END,
-          acompte = EXCLUDED.acompte,
-          extra = EXCLUDED.extra,
-          prime = EXCLUDED.prime,
-          infraction = EXCLUDED.infraction,
-          doublage = EXCLUDED.doublage,
-          mise_a_pied = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".mise_a_pied ELSE EXCLUDED.mise_a_pied END,
-          retard = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".retard ELSE EXCLUDED.retard END,
-          remarque = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".remarque ELSE EXCLUDED.remarque END,
-          clock_in = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".clock_in ELSE EXCLUDED.clock_in END,
-          clock_out = CASE WHEN public.\"${payrollTableName}\".updated = TRUE THEN public.\"${payrollTableName}\".clock_out ELSE EXCLUDED.clock_out END,
-          updated = CASE WHEN EXCLUDED.updated = TRUE THEN TRUE ELSE public.\"${payrollTableName}\".updated END,
-          p1_in = EXCLUDED.p1_in,
-          p1_out = EXCLUDED.p1_out,
-          p2_in = EXCLUDED.p2_in,
-          p2_out = EXCLUDED.p2_out`,
+      `INSERT INTO public."${payrollTableName}"(
+        present, acompte, extra, prime, infraction, doublage, mise_a_pied, retard, remarque,
+        user_id, date, username, clock_in, clock_out, updated, p1_in, p1_out, p2_in, p2_out
+      )
+      SELECT * FROM unnest(
+        $1::float[], $2::float[], $3::float[], $4::float[], $5::float[], $6::float[], $7::float[], $8::int[], $9::text[],
+        $10::int[], $11::date[], $12::text[], $13::text[], $14::text[], $15::boolean[], $16::text[], $17::text[], $18::text[], $19::text[]
+      )
+      ON CONFLICT(user_id, date) DO UPDATE SET
+        present = CASE WHEN public."${payrollTableName}".updated = TRUE THEN public."${payrollTableName}".present ELSE EXCLUDED.present END,
+        acompte = EXCLUDED.acompte,
+        extra = EXCLUDED.extra,
+        prime = EXCLUDED.prime,
+        infraction = EXCLUDED.infraction,
+        doublage = EXCLUDED.doublage,
+        mise_a_pied = CASE WHEN public."${payrollTableName}".updated = TRUE THEN public."${payrollTableName}".mise_a_pied ELSE EXCLUDED.mise_a_pied END,
+        retard = CASE WHEN public."${payrollTableName}".updated = TRUE THEN public."${payrollTableName}".retard ELSE EXCLUDED.retard END,
+        remarque = CASE WHEN public."${payrollTableName}".updated = TRUE THEN public."${payrollTableName}".remarque ELSE EXCLUDED.remarque END,
+        clock_in = CASE WHEN public."${payrollTableName}".updated = TRUE THEN public."${payrollTableName}".clock_in ELSE EXCLUDED.clock_in END,
+        clock_out = CASE WHEN public."${payrollTableName}".updated = TRUE THEN public."${payrollTableName}".clock_out ELSE EXCLUDED.clock_out END,
+        updated = CASE WHEN EXCLUDED.updated = TRUE THEN TRUE ELSE public."${payrollTableName}".updated END,
+        p1_in = EXCLUDED.p1_in,
+        p1_out = EXCLUDED.p1_out,
+        p2_in = EXCLUDED.p2_in,
+        p2_out = EXCLUDED.p2_out`,
       [
-        finalPresent, totalAdvance, dayExtra, dayPrime, dayInfraction, dayDoublage, miseAPiedDays, retardMins, finalRemark,
-        user.id, dateSQL, user.username, clockIn, clockOut, forceUpdated,
-        coupureP1In, coupureP1Out, coupureP2In, coupureP2Out
+        val('finalPresent'), val('totalAdvance'), val('dayExtra'), val('dayPrime'), val('dayInfraction'), val('dayDoublage'), val('miseAPiedDays'), val('retardMins'), val('finalRemark'),
+        val('userId'), val('dateSQL'), val('username'), val('clockIn'), val('clockOut'), val('forceUpdated'),
+        val('coupureP1In'), val('coupureP1Out'), val('coupureP2In'), val('coupureP2Out')
       ]
     );
-  }));
+  }
 
   // flush accumulated notifications sorted by time ASC (so earliest gets lowest ID, latest gets highest ID)
   if (pendingNotifications.length > 0) {
@@ -1591,6 +1608,10 @@ const resolvers = {
         WHERE user_id = $1
       `, [userId]);
       return res.rows[0] || null;
+    },
+    getUserPhoto: async (_: any, { userId }: { userId: string }) => {
+      const res = await pool.query('SELECT id, photo FROM public.users WHERE id = $1', [userId]);
+      return res.rows[0];
     },
     getAdvances: async (_: any, { filter, month }: { filter?: string, month?: string }) => {
       const cacheKey = `getAdvances:${filter || 'all'}:${month || 'all'}`;

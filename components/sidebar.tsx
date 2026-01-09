@@ -148,11 +148,19 @@ export function Sidebar() {
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         className={cn(
-          "fixed left-0 top-0 z-50 flex h-screen flex-col bg-white border-r border-[#e8e0d5]/50 shadow-sm transition-all duration-300 ease-in-out lg:relative lg:translate-x-0 print:hidden",
+          "fixed left-0 top-0 z-[60] flex h-screen flex-col bg-white border-r border-[#e8e0d5]/50 shadow-sm transition-all duration-300 ease-in-out lg:relative lg:translate-x-0 print:hidden",
           isMobileMenuOpen ? "translate-x-0" : "-translate-x-full",
           isReduced ? "lg:w-28 w-72 sm:w-80" : "w-72 sm:w-80 lg:w-96"
         )}
       >
+        {/* Close Button - Mobile Only - Absolute Position */}
+        <button
+          onClick={() => setIsMobileMenuOpen(false)}
+          className="lg:hidden absolute top-5 right-5 z-50 p-2 text-[#8b5a2b] hover:bg-[#f8f6f1] rounded-full transition-colors"
+        >
+          <X className="h-6 w-6" />
+        </button>
+
         {/* Toggle Button for Desktop */}
         <button
           onClick={toggleSidebar}
@@ -164,52 +172,55 @@ export function Sidebar() {
         {/* Logo Header - Hidden for Managers */}
         {user.role !== "manager" && (
           <div className={cn(
-            "border-b border-[#e8e0d5]/50 p-6 transition-all duration-300",
-            isReduced ? "lg:p-4" : "lg:p-10"
+            "border-b border-[#e8e0d5]/50 transition-all duration-300",
+            isReduced ? "lg:p-4" : "p-5 lg:p-10"
           )}>
-            <Link href="/" className={cn(
-              "flex items-center gap-5 hover:opacity-80 transition-opacity",
-              isReduced && "justify-center"
-            )}>
-              <div className={cn(
-                "relative rounded-full bg-gradient-to-br from-[#8b5a2b] to-[#a0522d] p-0.5 shadow-lg transition-all duration-300",
-                isReduced ? "h-12 w-12" : "h-16 w-16 lg:h-20 lg:w-20"
+            <div className="flex items-center">
+              <Link href="/" className={cn(
+                "flex items-center gap-4 hover:opacity-80 transition-opacity",
+                isReduced && "justify-center"
               )}>
-                <div className="h-full w-full rounded-full bg-white flex items-center justify-center overflow-hidden">
-                  <Image
-                    src="/images/logo.jpeg"
-                    alt="Business Bey Logo"
-                    width={80}
-                    height={80}
-                    className="rounded-full object-cover"
-                  />
+                <div className={cn(
+                  "relative rounded-full bg-gradient-to-br from-[#8b5a2b] to-[#a0522d] p-0.5 shadow-lg transition-all duration-300",
+                  isReduced ? "h-12 w-12" : "h-12 w-12 lg:h-16 lg:w-16"
+                )}>
+                  <div className="h-full w-full rounded-full bg-white flex items-center justify-center overflow-hidden">
+                    <Image
+                      src="/images/logo.jpeg"
+                      alt="Business Bey Logo"
+                      width={80}
+                      height={80}
+                      className="rounded-full object-cover"
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className={cn(
-                "flex flex-col transition-all duration-300",
-                isReduced ? "lg:hidden" : "flex"
-              )}>
-                <span className="font-[family-name:var(--font-heading)] text-xl lg:text-3xl font-bold text-[#8b5a2b]">
-                  Business Bey
-                </span>
-                <span className="text-sm lg:text-base text-[#a0522d] font-medium">l'aouina</span>
-              </div>
-            </Link>
+                <div className={cn(
+                  "flex flex-col transition-all duration-300",
+                  isReduced ? "lg:hidden" : "flex"
+                )}>
+                  <span className="font-[family-name:var(--font-heading)] text-lg lg:text-3xl font-bold text-[#8b5a2b]">
+                    Business Bey
+                  </span>
+                  <span className="text-xs lg:text-sm text-[#a0522d] font-medium">l'aouina</span>
+                </div>
+              </Link>
+
+            </div>
           </div>
         )}
 
         {/* User Profile Card */}
         <div className={cn(
-          "border-b border-[#e8e0d5]/50 p-6 transition-all duration-300",
-          isReduced ? "lg:p-4" : "lg:p-10"
+          "border-b border-[#e8e0d5]/50 transition-all duration-300",
+          isReduced ? "lg:p-4" : "p-4 lg:p-8"
         )}>
           <div className={cn(
-            "flex items-center gap-5",
+            "flex items-center gap-4",
             isReduced && "justify-center"
           )}>
             <div className={cn(
               "flex-shrink-0 rounded-full bg-gradient-to-br from-[#8b5a2b] to-[#a0522d] shadow-md flex items-center justify-center overflow-hidden border-2 border-white transition-all duration-300",
-              isReduced ? "h-12 w-12" : "h-16 w-16 lg:h-20 lg:w-20"
+              isReduced ? "h-12 w-12" : "h-12 w-12 lg:h-16 lg:w-16"
             )}>
               {user.avatar ? (
                 <img
@@ -220,7 +231,7 @@ export function Sidebar() {
               ) : (
                 <span className={cn(
                   "font-bold text-white uppercase transition-all duration-300",
-                  isReduced ? "text-lg" : "text-xl lg:text-2xl"
+                  isReduced ? "text-lg" : "text-lg lg:text-xl"
                 )}>
                   {user.name ? user.name.charAt(0) : "U"}
                 </span>
@@ -230,8 +241,8 @@ export function Sidebar() {
               "min-w-0 flex-1 transition-all duration-300",
               isReduced ? "lg:hidden" : "block"
             )}>
-              <p className="truncate text-base lg:text-lg font-semibold text-[#3d2c1e]">{user.name}</p>
-              <p className="text-sm lg:text-base text-[#8b5a2b] font-medium">
+              <p className="truncate text-sm lg:text-lg font-semibold text-[#3d2c1e]">{user.name}</p>
+              <p className="text-xs lg:text-base text-[#8b5a2b] font-medium">
                 {user.role === "admin" ? "Administrateur" : user.role === "manager" ? "Gérant" : "Employé"}
               </p>
             </div>
@@ -240,8 +251,8 @@ export function Sidebar() {
 
         {/* Navigation */}
         <nav className={cn(
-          "flex-1 overflow-y-auto space-y-3 transition-all duration-300",
-          isReduced ? "p-4" : "p-6 lg:p-8"
+          "flex-1 overflow-y-auto space-y-2 transition-all duration-300",
+          isReduced ? "p-3" : "p-3 lg:p-6"
         )}>
           {filteredNav.map((item) => {
             const isActive = pathname === item.href || (item.href === "/calendar" && pathname.startsWith("/schedule"))
@@ -253,7 +264,7 @@ export function Sidebar() {
                 title={isReduced ? item.name : ""}
                 className={cn(
                   "group flex items-center transition-all duration-200 rounded-xl",
-                  isReduced ? "justify-center h-12 w-full px-0" : "gap-5 px-5 py-4 lg:py-5 text-base lg:text-lg font-medium",
+                  isReduced ? "justify-center h-12 w-full px-0" : "gap-4 px-4 py-3 lg:py-4 text-sm lg:text-base font-medium",
                   isActive
                     ? "bg-gradient-to-r from-[#8b5a2b] to-[#a0522d] text-white shadow-lg scale-[1.02]"
                     : "text-[#3d2c1e] hover:bg-[#f8f6f1] hover:text-[#8b5a2b]",
@@ -262,7 +273,7 @@ export function Sidebar() {
                 <item.icon
                   className={cn(
                     "transition-transform group-hover:scale-110 shrink-0",
-                    "h-6 w-6 lg:h-7 lg:w-7",
+                    "h-5 w-5 lg:h-6 lg:w-6",
                     isActive ? "text-white" : "text-[#8b5a2b]",
                   )}
                 />
@@ -281,18 +292,18 @@ export function Sidebar() {
         {/* Logout Button */}
         <div className={cn(
           "border-t border-[#e8e0d5]/50 transition-all duration-300",
-          isReduced ? "p-4" : "p-6 lg:p-8"
+          isReduced ? "p-3" : "p-4 lg:p-6"
         )}>
           <button
             onClick={handleLogout}
             title={isReduced ? "Déconnexion" : ""}
             className={cn(
               "flex items-center justify-center transition-all border border-[#c9b896] rounded-xl font-medium",
-              isReduced ? "h-12 w-full px-0" : "w-full gap-4 px-5 py-4 lg:py-5 text-base lg:text-lg text-[#8b5a2b] hover:bg-gradient-to-r hover:from-red-50 hover:to-red-100 hover:text-red-600 hover:border-red-300 hover:shadow-md",
+              isReduced ? "h-12 w-full px-0" : "w-full gap-3 px-4 py-3 lg:py-4 text-sm lg:text-base text-[#8b5a2b] hover:bg-gradient-to-r hover:from-red-50 hover:to-red-100 hover:text-red-600 hover:border-red-300 hover:shadow-md",
             )}
           >
             <LogOut className={cn(
-              "shrink-0 h-6 w-6 lg:h-7 lg:w-7",
+              "shrink-0 h-5 w-5 lg:h-6 lg:w-6",
               !isReduced && "text-[#8b5a2b]"
             )} />
             <span className={cn(

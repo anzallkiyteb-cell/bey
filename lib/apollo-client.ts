@@ -37,7 +37,7 @@ const createApolloClient = () => {
         return forward(operation);
     }).concat(new BatchHttpLink({
         uri: typeof window !== "undefined" ? "/api/graphql" : "http://localhost:3000/api/graphql",
-        batchInterval: 50,
+        batchInterval: 20,
         batchMax: 10,
     }));
 
