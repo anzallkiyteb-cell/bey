@@ -316,7 +316,7 @@ function DashboardContent() {
 
           <div className="p-6 lg:p-10 space-y-10">
             <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 animate-in fade-in slide-in-from-top-10 duration-700 items-stretch">
-              {canSee('dashboard', 'total_personnel') && (
+              {canSee('dashboard', 'total_personnel') && currentUser.role !== 'manager' && (
                 <StatCard
                   title="Total Personnel"
                   value={totalEmployees}

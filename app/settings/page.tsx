@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input"
 import { currentUser } from "@/lib/mock-data"
 import { User, Shield, Bell, Palette, Eye, EyeOff } from "lucide-react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { gql, useMutation } from "@apollo/client"
+import { useRouter } from "next/navigation"
 
 const CHANGE_PASSWORD = gql`
   mutation ChangePassword($userId: ID!, $oldPassword: String!, $newPassword: String!) {
@@ -17,9 +18,16 @@ const CHANGE_PASSWORD = gql`
 `
 
 export default function SettingsPage() {
+  const router = useRouter()
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+
+  useEffect(() => {
+    if (currentUser?.role === "manager") {
+      router.push("/")
+    }
+  }, [router])
 
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)

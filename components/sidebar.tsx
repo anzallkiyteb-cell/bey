@@ -7,12 +7,40 @@ import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { getCurrentUser, mockUsers, setCurrentUser } from "@/lib/mock-data"
 import { useEffect, useState } from "react"
+import { ChevronsLeft, ChevronsRight } from "lucide-react"
 
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const [user, setUser] = useState<any>(getCurrentUser() || {})
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("sidebarCollapsed") === "true"
+    }
+    return false
+  })
+  const [isHovered, setIsHovered] = useState(false)
+
+  // Effective reduced state (only reduced if manually collapsed AND not currently hovered)
+  const isReduced = isCollapsed && !isHovered
+
+  // Sync state if localStorage changes (optional but good for multi-tab)
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "sidebarCollapsed") {
+        setIsCollapsed(e.newValue === "true")
+      }
+    }
+    window.addEventListener("storage", handleStorage)
+    return () => window.removeEventListener("storage", handleStorage)
+  }, [])
+
+  const toggleSidebar = () => {
+    const newState = !isCollapsed
+    setIsCollapsed(newState)
+    localStorage.setItem("sidebarCollapsed", String(newState))
+  }
 
   const [permissions, setPermissions] = useState<any>({});
 
@@ -50,7 +78,7 @@ export function Sidebar() {
 
     // Admin only - no dynamic permission needed (or hardcoded true)
     { name: "Gestion Accès", href: "/management", icon: Users, roles: ["admin"] },
-    { name: "Paramètres", href: "/settings", icon: Settings, roles: ["admin", "manager", "user"] },
+    { name: "Paramètres", href: "/settings", icon: Settings, roles: ["admin", "user"] },
   ]
 
   const filteredNav = navigation.filter((item) => {
@@ -117,38 +145,72 @@ export function Sidebar() {
       )}
 
       <div
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
         className={cn(
-          "fixed left-0 top-0 z-50 flex h-screen w-72 sm:w-80 flex-col bg-white border-r border-[#e8e0d5]/50 shadow-sm transition-transform duration-300 lg:relative lg:translate-x-0 lg:w-96 print:hidden",
+          "fixed left-0 top-0 z-50 flex h-screen flex-col bg-white border-r border-[#e8e0d5]/50 shadow-sm transition-all duration-300 ease-in-out lg:relative lg:translate-x-0 print:hidden",
           isMobileMenuOpen ? "translate-x-0" : "-translate-x-full",
+          isReduced ? "lg:w-28 w-72 sm:w-80" : "w-72 sm:w-80 lg:w-96"
         )}
       >
-        {/* Logo Header */}
-        <div className="border-b border-[#e8e0d5]/50 p-8 lg:p-10">
-          <Link href="/" className="flex items-center gap-5 hover:opacity-80 transition-opacity">
-            <div className="relative h-16 w-16 lg:h-20 lg:w-20 rounded-full bg-gradient-to-br from-[#8b5a2b] to-[#a0522d] p-0.5 shadow-lg">
-              <div className="h-full w-full rounded-full bg-white flex items-center justify-center overflow-hidden">
-                <Image
-                  src="/images/logo.jpeg"
-                  alt="Business Bey Logo"
-                  width={80}
-                  height={80}
-                  className="rounded-full object-cover"
-                />
+        {/* Toggle Button for Desktop */}
+        <button
+          onClick={toggleSidebar}
+          className="hidden lg:flex absolute -right-4 top-10 z-[60] h-8 w-8 items-center justify-center rounded-full border border-[#c9b896] bg-white text-[#8b5a2b] shadow-md hover:bg-[#f8f6f1] transition-colors"
+        >
+          {isCollapsed ? <ChevronsRight className="h-5 w-5" /> : <ChevronsLeft className="h-5 w-5" />}
+        </button>
+
+        {/* Logo Header - Hidden for Managers */}
+        {user.role !== "manager" && (
+          <div className={cn(
+            "border-b border-[#e8e0d5]/50 p-6 transition-all duration-300",
+            isReduced ? "lg:p-4" : "lg:p-10"
+          )}>
+            <Link href="/" className={cn(
+              "flex items-center gap-5 hover:opacity-80 transition-opacity",
+              isReduced && "justify-center"
+            )}>
+              <div className={cn(
+                "relative rounded-full bg-gradient-to-br from-[#8b5a2b] to-[#a0522d] p-0.5 shadow-lg transition-all duration-300",
+                isReduced ? "h-12 w-12" : "h-16 w-16 lg:h-20 lg:w-20"
+              )}>
+                <div className="h-full w-full rounded-full bg-white flex items-center justify-center overflow-hidden">
+                  <Image
+                    src="/images/logo.jpeg"
+                    alt="Business Bey Logo"
+                    width={80}
+                    height={80}
+                    className="rounded-full object-cover"
+                  />
+                </div>
               </div>
-            </div>
-            <div className="flex flex-col">
-              <span className="font-[family-name:var(--font-heading)] text-xl lg:text-3xl font-bold text-[#8b5a2b]">
-                Business Bey
-              </span>
-              <span className="text-sm lg:text-base text-[#a0522d] font-medium">l'aouina</span>
-            </div>
-          </Link>
-        </div>
+              <div className={cn(
+                "flex flex-col transition-all duration-300",
+                isReduced ? "lg:hidden" : "flex"
+              )}>
+                <span className="font-[family-name:var(--font-heading)] text-xl lg:text-3xl font-bold text-[#8b5a2b]">
+                  Business Bey
+                </span>
+                <span className="text-sm lg:text-base text-[#a0522d] font-medium">l'aouina</span>
+              </div>
+            </Link>
+          </div>
+        )}
 
         {/* User Profile Card */}
-        <div className="border-b border-[#e8e0d5]/50 p-8 lg:p-10">
-          <div className="flex items-center gap-5">
-            <div className="h-16 w-16 lg:h-20 lg:w-20 flex-shrink-0 rounded-full bg-gradient-to-br from-[#8b5a2b] to-[#a0522d] shadow-md flex items-center justify-center overflow-hidden border-2 border-white">
+        <div className={cn(
+          "border-b border-[#e8e0d5]/50 p-6 transition-all duration-300",
+          isReduced ? "lg:p-4" : "lg:p-10"
+        )}>
+          <div className={cn(
+            "flex items-center gap-5",
+            isReduced && "justify-center"
+          )}>
+            <div className={cn(
+              "flex-shrink-0 rounded-full bg-gradient-to-br from-[#8b5a2b] to-[#a0522d] shadow-md flex items-center justify-center overflow-hidden border-2 border-white transition-all duration-300",
+              isReduced ? "h-12 w-12" : "h-16 w-16 lg:h-20 lg:w-20"
+            )}>
               {user.avatar ? (
                 <img
                   src={user.avatar}
@@ -156,12 +218,18 @@ export function Sidebar() {
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <span className="text-xl lg:text-2xl font-bold text-white uppercase">
+                <span className={cn(
+                  "font-bold text-white uppercase transition-all duration-300",
+                  isReduced ? "text-lg" : "text-xl lg:text-2xl"
+                )}>
                   {user.name ? user.name.charAt(0) : "U"}
                 </span>
               )}
             </div>
-            <div className="min-w-0 flex-1">
+            <div className={cn(
+              "min-w-0 flex-1 transition-all duration-300",
+              isReduced ? "lg:hidden" : "block"
+            )}>
               <p className="truncate text-base lg:text-lg font-semibold text-[#3d2c1e]">{user.name}</p>
               <p className="text-sm lg:text-base text-[#8b5a2b] font-medium">
                 {user.role === "admin" ? "Administrateur" : user.role === "manager" ? "Gérant" : "Employé"}
@@ -171,7 +239,10 @@ export function Sidebar() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-3">
+        <nav className={cn(
+          "flex-1 overflow-y-auto space-y-3 transition-all duration-300",
+          isReduced ? "p-4" : "p-6 lg:p-8"
+        )}>
           {filteredNav.map((item) => {
             const isActive = pathname === item.href || (item.href === "/calendar" && pathname.startsWith("/schedule"))
             return (
@@ -179,8 +250,10 @@ export function Sidebar() {
                 key={item.name}
                 href={item.href}
                 onClick={handleNavClick}
+                title={isReduced ? item.name : ""}
                 className={cn(
-                  "group flex items-center gap-5 rounded-xl px-5 py-4 lg:py-5 text-base lg:text-lg font-medium transition-all duration-200",
+                  "group flex items-center transition-all duration-200 rounded-xl",
+                  isReduced ? "justify-center h-12 w-full px-0" : "gap-5 px-5 py-4 lg:py-5 text-base lg:text-lg font-medium",
                   isActive
                     ? "bg-gradient-to-r from-[#8b5a2b] to-[#a0522d] text-white shadow-lg scale-[1.02]"
                     : "text-[#3d2c1e] hover:bg-[#f8f6f1] hover:text-[#8b5a2b]",
@@ -188,26 +261,49 @@ export function Sidebar() {
               >
                 <item.icon
                   className={cn(
-                    "h-6 w-6 lg:h-7 lg:w-7 transition-transform group-hover:scale-110",
+                    "transition-transform group-hover:scale-110 shrink-0",
+                    "h-6 w-6 lg:h-7 lg:w-7",
                     isActive ? "text-white" : "text-[#8b5a2b]",
                   )}
                 />
-                <span className={cn(isActive && "font-semibold")}>{item.name}</span>
+                <span className={cn(
+                  "truncate transition-all duration-300",
+                  isReduced ? "lg:hidden" : "block",
+                  isActive && "font-semibold"
+                )}>
+                  {item.name}
+                </span>
               </Link>
             )
           })}
         </nav>
 
         {/* Logout Button */}
-        <div className="border-t border-[#e8e0d5]/50 p-6 lg:p-8">
+        <div className={cn(
+          "border-t border-[#e8e0d5]/50 transition-all duration-300",
+          isReduced ? "p-4" : "p-6 lg:p-8"
+        )}>
           <button
             onClick={handleLogout}
-            className="flex w-full items-center justify-center gap-4 rounded-xl px-5 py-4 lg:py-5 text-base lg:text-lg font-medium text-[#8b5a2b] hover:bg-gradient-to-r hover:from-red-50 hover:to-red-100 hover:text-red-600 transition-all border border-[#c9b896] hover:border-red-300 hover:shadow-md"
+            title={isReduced ? "Déconnexion" : ""}
+            className={cn(
+              "flex items-center justify-center transition-all border border-[#c9b896] rounded-xl font-medium",
+              isReduced ? "h-12 w-full px-0" : "w-full gap-4 px-5 py-4 lg:py-5 text-base lg:text-lg text-[#8b5a2b] hover:bg-gradient-to-r hover:from-red-50 hover:to-red-100 hover:text-red-600 hover:border-red-300 hover:shadow-md",
+            )}
           >
-            <LogOut className="h-6 w-6 lg:h-7 lg:w-7" />
-            Déconnexion
+            <LogOut className={cn(
+              "shrink-0 h-6 w-6 lg:h-7 lg:w-7",
+              !isReduced && "text-[#8b5a2b]"
+            )} />
+            <span className={cn(
+              "transition-all duration-300",
+              isReduced ? "lg:hidden" : "block"
+            )}>
+              Déconnexion
+            </span>
           </button>
         </div>
+
       </div>
     </>
   )

@@ -229,17 +229,17 @@ export default function AllSchedulesPlacementPage() {
                     <table className="w-full border-separate border-spacing-0 table-fixed">
                         <thead className="sticky top-0 z-50">
                             <tr className="bg-[#2d1e12] text-white">
-                                <th className="p-3 lg:p-4 text-left sticky left-0 z-50 bg-[#2d1e12] border-r border-white/10 w-[120px] lg:w-[15%]">
-                                    <div className="flex items-center gap-2">
-                                        <LayoutGrid className="h-3 w-3 text-[#8b5a2b]" />
-                                        <span className="text-[10px] font-black uppercase tracking-widest leading-none">Shift</span>
+                                <th className="p-1 px-2 lg:p-4 text-left sticky left-0 z-50 bg-[#2d1e12] border-r border-white/10 w-[80px] lg:w-[15%]">
+                                    <div className="flex items-center gap-1 lg:gap-2">
+                                        <LayoutGrid className="h-2.5 w-2.5 lg:h-3 lg:w-3 text-[#8b5a2b]" />
+                                        <span className="text-[8px] lg:text-[10px] font-black uppercase tracking-widest leading-none">Shift</span>
                                     </div>
                                 </th>
                                 {DAYS.map(day => (
-                                    <th key={day.key} className="p-2 lg:p-4 text-center border-r border-white/5 w-[100px] lg:w-[12%]">
+                                    <th key={day.key} className="p-1 lg:p-4 text-center border-r border-white/5 w-[calc((100%-80px)/7)] lg:w-[12%]">
                                         <div className="flex flex-col items-center">
-                                            <span className="text-[9px] lg:text-[11px] font-black uppercase tracking-tighter">{day.label}</span>
-                                            <span className="text-[8px] font-bold opacity-30 mt-0.5">{day.short}</span>
+                                            <span className="text-[8px] lg:text-[11px] font-black uppercase tracking-tighter whitespace-nowrap">{day.label}</span>
+                                            <span className="text-[7px] font-bold opacity-30 mt-0.5">{day.short}</span>
                                         </div>
                                     </th>
                                 ))}
@@ -260,12 +260,12 @@ export default function AllSchedulesPlacementPage() {
                                         <tr key={`${dept}-${shiftOpt.value}`} className={cn("group transition-colors", shiftOpt.bg, "hover:brightness-[0.98]")}>
                                             {/* Left Header for Shift Name */}
                                             <td className={cn(
-                                                "p-2 lg:p-3 sticky left-0 z-30 border-r transition-colors shadow-sm",
+                                                "p-1.5 lg:p-3 sticky left-0 z-30 border-r transition-colors shadow-sm",
                                                 shiftOpt.bg, shiftOpt.border, "border-b-[3px] border-[#618774]"
                                             )}>
-                                                <div className={cn("flex flex-col lg:flex-row lg:items-center gap-1.5 lg:gap-2", shiftOpt.color)}>
-                                                    <shiftOpt.icon className="h-3.5 w-3.5" />
-                                                    <span className="text-[9px] lg:text-[10px] font-black uppercase tracking-tighter leading-none">{shiftOpt.label}</span>
+                                                <div className={cn("flex flex-col lg:flex-row lg:items-center gap-1 lg:gap-2", shiftOpt.color)}>
+                                                    <shiftOpt.icon className="h-3 w-3 lg:h-3.5 lg:w-3.5" />
+                                                    <span className="text-[8px] lg:text-[10px] font-black uppercase tracking-tighter leading-none">{shiftOpt.label}</span>
                                                 </div>
                                             </td>
 
@@ -290,8 +290,8 @@ export default function AllSchedulesPlacementPage() {
                                                 })
 
                                                 return (
-                                                    <td key={day.key} className={cn("p-1 lg:p-2 border-r align-top transition-colors", shiftOpt.border, "border-b-[3px] border-[#618774]")}>
-                                                        <div className="flex flex-col gap-1 min-h-[30px] lg:min-h-[50px]">
+                                                    <td key={day.key} className={cn("p-0.5 lg:p-2 border-r align-top transition-colors", shiftOpt.border, "border-b-[3px] border-[#618774]")}>
+                                                        <div className="flex flex-col gap-0.5 lg:gap-1 min-h-[30px] lg:min-h-[50px]">
                                                             {emps.map((emp: any) => {
                                                                 const isUpdating = updatingId?.startsWith(`${emp.user_id}-${day.key}`)
                                                                 const actualShift = emp[day.key];
@@ -315,30 +315,29 @@ export default function AllSchedulesPlacementPage() {
                                                                                 onPointerUp={onLongPressEnd}
                                                                                 onPointerLeave={onLongPressEnd}
                                                                                 className={cn(
-                                                                                    "flex items-center gap-2 px-1.5 py-1.5 rounded-lg transition-all active:scale-95 text-left w-full overflow-hidden border shadow-[0_1px_2px_rgba(0,0,0,0.05)]",
+                                                                                    "flex items-center gap-1 lg:gap-2 px-1 lg:px-1.5 py-1 lg:py-1.5 rounded-md lg:rounded-lg transition-all active:scale-95 text-left w-full overflow-hidden border shadow-[0_1px_2px_rgba(0,0,0,0.05)]",
                                                                                     displayStyle.iconBg, "hover:shadow-md",
                                                                                     displayStyle.border,
                                                                                     isUpdating && "opacity-50 grayscale cursor-not-allowed"
                                                                                 )}
                                                                             >
                                                                                 {/* Photo/Avatar */}
-                                                                                <div className="h-6 w-6 rounded-full bg-white border border-[#c9b896]/30 flex items-center justify-center overflow-hidden shrink-0 shadow-sm">
+                                                                                <div className="h-4 w-4 lg:h-6 lg:w-6 rounded-full bg-white border border-[#c9b896]/30 flex items-center justify-center overflow-hidden shrink-0 shadow-sm">
                                                                                     {emp.photo ? (
                                                                                         <img src={emp.photo} className="h-full w-full object-cover" />
                                                                                     ) : (
-                                                                                        <span className="text-[10px] font-black text-[#8b5a2b]">{emp.username.charAt(0)}</span>
+                                                                                        <span className="text-[7px] lg:text-[10px] font-black text-[#8b5a2b]">{emp.username.charAt(0)}</span>
                                                                                     )}
                                                                                 </div>
-
                                                                                 <div className="flex flex-col min-w-0">
-                                                                                    <span className="text-[9px] lg:text-[10px] font-black text-[#3d2c1e] truncate uppercase tracking-tight leading-none mb-0.5">
+                                                                                    <span className="text-[7px] lg:text-[10px] font-black text-[#3d2c1e] truncate uppercase tracking-tight leading-none mb-0.5">
                                                                                         {emp.username}
                                                                                     </span>
-                                                                                    <span className="text-[7px] font-bold text-[#8b5a2b]/50 uppercase tracking-widest leading-none">
+                                                                                    <span className="hidden lg:block text-[7px] font-bold text-[#8b5a2b]/50 uppercase tracking-widest leading-none">
                                                                                         {emp.departement || "Staff"}
                                                                                     </span>
                                                                                 </div>
-                                                                                {isUpdating && <Loader2 className="h-3 w-3 animate-spin text-[#8b5a2b] ml-auto shrink-0" />}
+                                                                                {isUpdating && <Loader2 className="h-2 w-2 lg:h-3 lg:w-3 animate-spin text-[#8b5a2b] ml-auto shrink-0" />}
                                                                             </button>
                                                                         </DropdownMenuTrigger>
                                                                         <DropdownMenuContent align="start" className="rounded-xl border border-[#c9b896]/30 p-1 bg-white shadow-2xl z-[100] w-[140px]">
