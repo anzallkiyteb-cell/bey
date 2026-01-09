@@ -2511,12 +2511,12 @@ const resolvers = {
         await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_coupure BOOLEAN DEFAULT false');
       } catch (e) { }
 
-      const { username, email, phone, cin, departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure } = input;
+      const { username, email, phone, cin, departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure, is_fixed } = input;
       const res = await pool.query(
-        `INSERT INTO public.users(username, email, phone, cin, "département", role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure)
-         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-         RETURNING id, username, email, phone, cin, "département" as departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure`,
-        [username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false, nbmonth || null, is_coupure || false]
+        `INSERT INTO public.users(username, email, phone, cin, "département", role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure, is_fixed)
+         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         RETURNING id, username, email, phone, cin, "département" as departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure, is_fixed`,
+        [username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false, nbmonth || null, is_coupure || false, is_fixed || false]
       );
       const newUser = res.rows[0];
 
@@ -2535,13 +2535,13 @@ const resolvers = {
         await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_coupure BOOLEAN DEFAULT false');
       } catch (e) { }
 
-      const { username, email, phone, cin, departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure } = input;
+      const { username, email, phone, cin, departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure, is_fixed } = input;
       const res = await pool.query(
         `UPDATE public.users
-          SET username = $2, email = $3, phone = $4, cin = $5, "département" = $6, role = $7, zktime_id = $8, status = $9, base_salary = $10, photo = $11, is_blocked = $12, nbmonth = $13, is_coupure = $14
+          SET username = $2, email = $3, phone = $4, cin = $5, "département" = $6, role = $7, zktime_id = $8, status = $9, base_salary = $10, photo = $11, is_blocked = $12, nbmonth = $13, is_coupure = $14, is_fixed = $15
           WHERE id = $1
-          RETURNING id, username, email, phone, cin, "département" as departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure`,
-        [id, username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false, nbmonth || null, is_coupure || false]
+          RETURNING id, username, email, phone, cin, "département" as departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure, is_fixed`,
+        [id, username, email, phone, cin, departement, role, zktime_id || null, status, base_salary, photo, is_blocked || false, nbmonth || null, is_coupure || false, is_fixed || false]
       );
       const updatedUser = res.rows[0];
 
@@ -2736,19 +2736,21 @@ const resolvers = {
       }
     },
     updateUserSchedule: async (_: any, { userId, schedule }: { userId: string, schedule: any }, context: any) => {
-      const { dim, lun, mar, mer, jeu, ven, sam, is_coupure, p1_in, p1_out, p2_in, p2_out } = schedule;
+      const { dim, lun, mar, mer, jeu, ven, sam, is_coupure, is_fixed, p1_in, p1_out, p2_in, p2_out, fixed_in, fixed_out } = schedule;
       const check = await pool.query('SELECT user_id FROM public.user_schedules WHERE user_id = $1', [userId]);
 
       if (check.rows.length === 0) {
         const userRes = await pool.query('SELECT username FROM public.users WHERE id = $1', [userId]);
         const username = userRes.rows[0]?.username || "Unknown";
         const res = await pool.query(
-          `INSERT INTO public.user_schedules(user_id, username, dim, lun, mar, mer, jeu, ven, sam, is_coupure, p1_in, p1_out, p2_in, p2_out) 
-           VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+          `INSERT INTO public.user_schedules(user_id, username, dim, lun, mar, mer, jeu, ven, sam, is_coupure, is_fixed, p1_in, p1_out, p2_in, p2_out, fixed_in, fixed_out) 
+           VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
           [
             userId, username,
             dim ?? null, lun ?? null, mar ?? null, mer ?? null, jeu ?? null, ven ?? null, sam ?? null,
-            is_coupure ?? false, p1_in ?? '08:00', p1_out ?? '12:00', p2_in ?? '14:00', p2_out ?? '18:00'
+            is_coupure ?? false, is_fixed ?? false,
+            p1_in ?? '08:00', p1_out ?? '12:00', p2_in ?? '14:00', p2_out ?? '18:00',
+            fixed_in ?? '08:00', fixed_out ?? '17:00'
           ]
         );
         await createNotification('schedule', "Emploi du temps créé", `L'emploi du temps de ${username} a été initialisé.`, userId, context.userDone);
@@ -2761,13 +2763,17 @@ const resolvers = {
                sam = COALESCE($8, sam), 
                is_coupure = COALESCE($9, is_coupure), 
                p1_in = COALESCE($10, p1_in), p1_out = COALESCE($11, p1_out), 
-               p2_in = COALESCE($12, p2_in), p2_out = COALESCE($13, p2_out) 
+               p2_in = COALESCE($12, p2_in), p2_out = COALESCE($13, p2_out),
+               is_fixed = COALESCE($14, is_fixed),
+               fixed_in = COALESCE($15, fixed_in), fixed_out = COALESCE($16, fixed_out)
            WHERE user_id = $1 RETURNING *`,
           [
             userId,
             dim ?? null, lun ?? null, mar ?? null, mer ?? null, jeu ?? null, ven ?? null, sam ?? null,
             is_coupure !== undefined ? is_coupure : null,
-            p1_in ?? null, p1_out ?? null, p2_in ?? null, p2_out ?? null
+            p1_in ?? null, p1_out ?? null, p2_in ?? null, p2_out ?? null,
+            is_fixed !== undefined ? is_fixed : null,
+            fixed_in ?? null, fixed_out ?? null
           ]
         );
         const row = res.rows[0];
