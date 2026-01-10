@@ -3513,8 +3513,12 @@ const resolvers = {
     },
     markNotificationsListAsRead: async (_: any, { ids }: { ids: string[] }) => {
       if (!ids || ids.length === 0) return true;
-      // Use "WHERE id = ANY($1)" for efficient array matching
-      await pool.query('UPDATE public.notifications SET read = TRUE WHERE id = ANY($1)', [ids]);
+      // Parse IDs to numbers to match database type
+      const numericIds = ids.map(id => parseInt(id)).filter(n => !isNaN(n));
+      if (numericIds.length === 0) return true;
+
+      // Use explicit cast ::int[] to avoid type errors with ANY
+      await pool.query('UPDATE public.notifications SET read = TRUE WHERE id = ANY($1::int[])', [numericIds]);
       return true;
     },
     deleteOldNotifications: async () => {
