@@ -2286,6 +2286,8 @@ const resolvers = {
         const uId = Number(user.id);
         const schedule = schedulesMap.get(uId);
         const originalShiftType = schedule ? schedule[dayCol] : "Repos";
+        const isCoupure = (!!schedule?.is_coupure) || (!!user.is_coupure);
+        const isFixed = (!!schedule?.is_fixed) || (!!user.is_fixed);
         let shiftType = originalShiftType;
 
         let userPunches = punchesByUser.get(Number(user.id)) || [];
@@ -2310,7 +2312,7 @@ const resolvers = {
 
           // Update shiftType but prioritize the PLANNED shift if available.
           // This ensures that if they are planned "Soir" but arrive early (11am), we still use 16:00 as start time (so no retard).
-          if (shift && shift !== "Non défini") {
+          if (shift && shift !== "Non défini" && !isFixed) {
             const detectedShift = shift;
             const hasPlannedShift = originalShiftType && originalShiftType !== "Repos";
 
@@ -2323,7 +2325,7 @@ const resolvers = {
 
               // EXCEPTION: If scheduled "Soir" but detected "Doublage" with a true Morning start
               // (e.g. Ghassen starts 07:49 -> Doublage, Nejah starts 11:18 -> Soir)
-              if (originalShiftType === "Soir" && detectedShift === "Doublage") {
+              if (originalShiftType === "Soir" && detectedShift === "Doublage" && !isFixed) {
                 const startH = getTunisiaHour(firstDate);
                 // Threshold: 11:00 AM. If started before this, it's a true Doublage/Morning start
                 if (startH < 11) {
@@ -2347,10 +2349,23 @@ const resolvers = {
         const sTypeUpper = (shiftType || "").toUpperCase();
         let liveDelay = null;
         let isLiveRetard = false;
-        if (hasPunches && sTypeUpper !== "REPOS") {
-          let startHour = (sTypeUpper === "SOIR") ? 16 : 7;
 
-          const shiftStartTime = new Date(`${dateSQL}T${String(startHour).padStart(2, "0")}:00:00.000+01:00`);
+        // Determine Planned Start Time for accurate Retard / Absence detection
+        let plannedStartHour = (sTypeUpper === "SOIR") ? 16 : 7;
+        let plannedStartMin = 0;
+
+        if (isFixed && schedule?.fixed_in) {
+          const [h, m] = schedule.fixed_in.split(':').map(Number);
+          plannedStartHour = h;
+          plannedStartMin = m || 0;
+        } else if (isCoupure && schedule?.p1_in) {
+          const [h, m] = schedule.p1_in.split(':').map(Number);
+          plannedStartHour = h;
+          plannedStartMin = m || 0;
+        }
+
+        if (hasPunches && sTypeUpper !== "REPOS") {
+          const shiftStartTime = new Date(`${dateSQL}T${String(plannedStartHour).padStart(2, "0")}:${String(plannedStartMin).padStart(2, "0")}:00.000+01:00`);
           const firstD = parseMachineDate(userPunches[0].device_time);
           if (firstD > shiftStartTime) {
             const diffMins = Math.floor((firstD.getTime() - shiftStartTime.getTime()) / 60000);
@@ -2369,10 +2384,9 @@ const resolvers = {
         // EXCEPT if the DB retard is a manual override (which we can't easily distinguish from auto, but usually auto matches format)
         if (currentRetardRecord) {
           // Re-check detection with the SAFE shiftType
-          if (hasPunches && sTypeUpper === "SOIR" && clockIn) {
-            // If shift is Soir, and we have punches, verify start time
-            const startHour = 16;
-            const shiftStartTime = new Date(`${dateSQL}T${String(startHour).padStart(2, "0")}:00:00.000+01:00`);
+          if (hasPunches && (sTypeUpper === "SOIR" || isFixed) && clockIn) {
+            // If shift is Soir or Fixed, and we have punches, verify start time
+            const shiftStartTime = new Date(`${dateSQL}T${String(plannedStartHour).padStart(2, "0")}:${String(plannedStartMin).padStart(2, "0")}:00.000+01:00`);
             const firstD = parseMachineDate(userPunches[0].device_time);
 
             if (firstD <= shiftStartTime) {
@@ -2430,12 +2444,9 @@ const resolvers = {
 
         // Intelligent Absence detection: if it's past shift start + grace period, show as Absent
         let isOverdue = false;
-        if (sTypeUpper === "MATIN" || sTypeUpper === "DOUBLAGE") {
-          // Matin starts at 07:00. Overdue by 07:15 (15 min grace)
-          if (currentTotalMins > (7 * 60 + 15)) isOverdue = true;
-        } else if (sTypeUpper === "SOIR") {
-          // Soir starts at 16:00. Overdue by 16:15
-          if (currentTotalMins > (16 * 60 + 15)) isOverdue = true;
+        const plannedStartTotalMins = plannedStartHour * 60 + plannedStartMin;
+        if (currentTotalMins > (plannedStartTotalMins + 15)) {
+          isOverdue = true;
         }
 
         const shiftEndLimit = (sTypeUpper === "SOIR") ? 23 : 16;
