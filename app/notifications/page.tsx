@@ -19,6 +19,7 @@ const GET_NOTIFICATIONS = gql`
       message
       timestamp
       read
+      userDone
     }
   }
 `;
@@ -64,7 +65,11 @@ export default function NotificationsPage() {
   const [markRead] = useMutation(MARK_READ);
   const [deleteOld] = useMutation(DELETE_OLD);
 
-  const allNotifications = useMemo(() => data?.getNotifications || [], [data]);
+  const allNotifications = useMemo(() => {
+    const list = data?.getNotifications || [];
+    // User requested to see ONLY "Notification Manager" type things here, NOT Machine logs
+    return list.filter((n: any) => n.userDone !== 'Machine ZKTeco');
+  }, [data]);
 
   // Group notifications by month
   const notificationsByMonth = useMemo(() => {
