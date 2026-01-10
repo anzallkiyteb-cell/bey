@@ -43,6 +43,7 @@ import { gql, useQuery, useMutation } from "@apollo/client"
 import { startOfMonth, endOfMonth, format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { cn } from "@/lib/utils"
+import { getCurrentUser } from "@/lib/mock-data"
 
 // GraphQL Queries & Mutations
 const GET_NOTEBOOK_DATA = gql`
@@ -212,6 +213,8 @@ export default function NotebookPage() {
 }
 
 function NotebookContent() {
+  const currentUser = getCurrentUser()
+  const isAdmin = currentUser?.role === 'admin'
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedDept, setSelectedDept] = useState("all")
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
@@ -280,7 +283,7 @@ function NotebookContent() {
       if (user) {
         setSelectedUser(user)
         setDialogOpen(true)
-        if (showHistoryParam === "true") {
+        if (showHistoryParam === "true" && isAdmin) {
           setStep(3)
         }
       }
@@ -334,7 +337,9 @@ function NotebookContent() {
         });
       });
     }
-    return dbEntries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return dbEntries
+      .filter(e => isAdmin || e.type === "infraction")
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [data]);
 
   // Filtered lists for the main page
@@ -405,6 +410,10 @@ function NotebookContent() {
   const handleDeleteEntry = async (entry: NotebookEntry) => {
     if (!confirm("Supprimer ?")) return;
     if (entry.isPersisted) {
+      if (!isAdmin && entry.type !== "infraction") {
+        alert("Action non autorisée.");
+        return;
+      }
       if (entry.type === 'retard') await deleteRetard({ variables: { id: entry.id.replace('retard-', '') } });
       else if (entry.type.startsWith('absent') || entry.type === 'mise_a_pied') await deleteAbsent({ variables: { id: entry.id.replace('absent-', '') } });
       else await deleteExtra({ variables: { id: entry.id.replace('extra-', '') } });
@@ -425,70 +434,72 @@ function NotebookContent() {
 
             <div className="flex items-center gap-4">
               {/* SMART ENTRY LIST TRIGGER */}
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Button variant="outline" className="relative border-[#8b5a2b] text-[#8b5a2b] hover:bg-[#8b5a2b]/10 font-bold px-4 rounded-xl h-12 shadow-sm transition-all flex items-center gap-2">
-                    <History className="h-5 w-5" />
-                    <span className="hidden sm:inline">Activités Récentes</span>
-                    {allEntries.length > 0 && (
-                      <span className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-rose-500 text-white text-[10px] flex items-center justify-center border-2 border-white animate-pulse">
-                        {allEntries.length}
-                      </span>
-                    )}
-                  </Button>
-                </SheetTrigger>
-                <SheetContent className="w-full sm:max-w-md bg-[#f8f6f1] border-l-[#c9b896] p-0 overflow-hidden flex flex-col">
-                  <SheetHeader className="p-6 bg-white border-b border-[#c9b896] shadow-sm">
-                    <SheetTitle className="text-xl font-bold text-[#8b5a2b] flex items-center gap-2">
-                      <Clock className="h-6 w-6" /> Historique du Mois
-                    </SheetTitle>
-                    <p className="text-xs text-[#6b5744] font-medium uppercase tracking-widest">{format(new Date(), "MMMM yyyy", { locale: fr })}</p>
-                  </SheetHeader>
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {allEntries.length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center opacity-30 p-20 text-center">
-                        <History className="h-20 w-20 mb-4" />
-                        <p className="font-bold italic">Aucune activité ce mois-ci</p>
-                      </div>
-                    ) : (
-                      allEntries.map((entry) => {
-                        const typeInfo = noteTypes.find(n => n.type === entry.type);
-                        const user = employees.find(u => u.id == entry.userId);
-                        return (
-                          <Card key={entry.id} className="border-[#c9b896]/50 bg-white p-4 shadow-sm group">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="h-10 w-10 flex-shrink-0 rounded-lg overflow-hidden border border-[#c9b896]/20 bg-[#f8f6f1] flex items-center justify-center">
-                                {user?.photo ? (
-                                  <img src={user.photo} alt={user?.name} className="h-full w-full object-cover" />
-                                ) : (
-                                  <span className="font-bold text-[#8b5a2b] text-sm">{user?.name?.charAt(0)}</span>
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-[#3d2c1e] text-sm truncate">{user?.name || "???"}</span>
-                                  <span className={cn("text-[10px] font-black uppercase px-2 py-0.5 rounded border shadow-xs", typeInfo?.color, typeInfo?.bgColor)}>
-                                    {typeInfo?.label}
-                                  </span>
+              {isAdmin && (
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Button variant="outline" className="relative border-[#8b5a2b] text-[#8b5a2b] hover:bg-[#8b5a2b]/10 font-bold px-4 rounded-xl h-12 shadow-sm transition-all flex items-center gap-2">
+                      <History className="h-5 w-5" />
+                      <span className="hidden sm:inline">Activités Récentes</span>
+                      {allEntries.length > 0 && (
+                        <span className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-rose-500 text-white text-[10px] flex items-center justify-center border-2 border-white animate-pulse">
+                          {allEntries.length}
+                        </span>
+                      )}
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent className="w-full sm:max-w-md bg-[#f8f6f1] border-l-[#c9b896] p-0 overflow-hidden flex flex-col">
+                    <SheetHeader className="p-6 bg-white border-b border-[#c9b896] shadow-sm">
+                      <SheetTitle className="text-xl font-bold text-[#8b5a2b] flex items-center gap-2">
+                        <Clock className="h-6 w-6" /> Historique du Mois
+                      </SheetTitle>
+                      <p className="text-xs text-[#6b5744] font-medium uppercase tracking-widest">{format(new Date(), "MMMM yyyy", { locale: fr })}</p>
+                    </SheetHeader>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {allEntries.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center opacity-30 p-20 text-center">
+                          <History className="h-20 w-20 mb-4" />
+                          <p className="font-bold italic">Aucune activité ce mois-ci</p>
+                        </div>
+                      ) : (
+                        allEntries.map((entry) => {
+                          const typeInfo = noteTypes.find(n => n.type === entry.type);
+                          const user = employees.find(u => u.id == entry.userId);
+                          return (
+                            <Card key={entry.id} className="border-[#c9b896]/50 bg-white p-4 shadow-sm group">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="h-10 w-10 flex-shrink-0 rounded-lg overflow-hidden border border-[#c9b896]/20 bg-[#f8f6f1] flex items-center justify-center">
+                                  {user?.photo ? (
+                                    <img src={user.photo} alt={user?.name} className="h-full w-full object-cover" />
+                                  ) : (
+                                    <span className="font-bold text-[#8b5a2b] text-sm">{user?.name?.charAt(0)}</span>
+                                  )}
                                 </div>
-                                <div className="flex items-center gap-3 text-[10px] text-[#6b5744] mt-1.5 opacity-70">
-                                  <span className="flex items-center gap-1"><CalendarIcon className="h-3 w-3" /> {format(new Date(entry.date), "dd/MM/yyyy")}</span>
-                                  <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {entry.time}</span>
-                                  {entry.price && <span className="font-bold text-[#8b5a2b]">{entry.price} DT</span>}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-[#3d2c1e] text-sm truncate">{user?.name || "???"}</span>
+                                    <span className={cn("text-[10px] font-black uppercase px-2 py-0.5 rounded border shadow-xs", typeInfo?.color, typeInfo?.bgColor)}>
+                                      {typeInfo?.label}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-3 text-[10px] text-[#6b5744] mt-1.5 opacity-70">
+                                    <span className="flex items-center gap-1"><CalendarIcon className="h-3 w-3" /> {format(new Date(entry.date), "dd/MM/yyyy")}</span>
+                                    <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {entry.time}</span>
+                                    {entry.price && <span className="font-bold text-[#8b5a2b]">{entry.price} DT</span>}
+                                  </div>
+                                  {entry.notes && <p className="text-[11px] italic text-[#6b5744] mt-1 line-clamp-1">{entry.notes}</p>}
                                 </div>
-                                {entry.notes && <p className="text-[11px] italic text-[#6b5744] mt-1 line-clamp-1">{entry.notes}</p>}
+                                <Button variant="ghost" size="icon" onClick={() => handleDeleteEntry(entry)} className="h-8 w-8 text-rose-300 hover:text-rose-600 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-all">
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
                               </div>
-                              <Button variant="ghost" size="icon" onClick={() => handleDeleteEntry(entry)} className="h-8 w-8 text-rose-300 hover:text-rose-600 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-all">
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </Card>
-                        )
-                      })
-                    )}
-                  </div>
-                </SheetContent>
-              </Sheet>
+                            </Card>
+                          )
+                        })
+                      )}
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              )}
 
               <NotificationBell />
             </div>
@@ -590,15 +601,17 @@ function NotebookContent() {
                   </div>
                   <div className="text-left font-black uppercase tracking-tighter text-lg">Ajouter un événement</div>
                 </button>
-                <button
-                  onClick={() => setStep(3)}
-                  className="flex items-center gap-4 p-6 rounded-2xl border-2 border-[#c9b896] bg-white hover:bg-[#f8f6f1] transition-all text-[#3d2c1e]"
-                >
-                  <div className="h-12 w-12 rounded-xl bg-[#c9b896] flex items-center justify-center text-white">
-                    <History className="h-6 w-6" />
-                  </div>
-                  <div className="text-left font-black uppercase tracking-tighter text-lg">Voir l'historique</div>
-                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => setStep(3)}
+                    className="flex items-center gap-4 p-6 rounded-2xl border-2 border-[#c9b896] bg-white hover:bg-[#f8f6f1] transition-all text-[#3d2c1e]"
+                  >
+                    <div className="h-12 w-12 rounded-xl bg-[#c9b896] flex items-center justify-center text-white">
+                      <History className="h-6 w-6" />
+                    </div>
+                    <div className="text-left font-black uppercase tracking-tighter text-lg">Voir l'historique</div>
+                  </button>
+                )}
               </div>
             ) : step === 1 ? (
               <div className="space-y-4 mt-4">
@@ -610,12 +623,14 @@ function NotebookContent() {
                   <ArrowLeft className="h-4 w-4" /> Retour
                 </Button>
                 <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                  {noteTypes.map(({ type, label, icon: Icon, color, bgColor }) => (
-                    <button key={type} onClick={() => handleNoteTypeClick(type)} className={cn("flex flex-col items-center justify-center gap-2 sm:gap-3 p-4 sm:p-6 rounded-2xl border-2 transition-all hover:scale-[1.02] active:scale-95 shadow-sm", bgColor)}>
-                      <Icon className={cn("h-6 w-6 sm:h-8 sm:w-8", color)} />
-                      <span className={cn("text-[9px] sm:text-xs font-black uppercase tracking-tight text-center leading-tight", color)}>{label}</span>
-                    </button>
-                  ))}
+                  {noteTypes
+                    .filter(nt => isAdmin || nt.type === "infraction")
+                    .map(({ type, label, icon: Icon, color, bgColor }) => (
+                      <button key={type} onClick={() => handleNoteTypeClick(type)} className={cn("flex flex-col items-center justify-center gap-2 sm:gap-3 p-4 sm:p-6 rounded-2xl border-2 transition-all hover:scale-[1.02] active:scale-95 shadow-sm", bgColor)}>
+                        <Icon className={cn("h-6 w-6 sm:h-8 sm:w-8", color)} />
+                        <span className={cn("text-[9px] sm:text-xs font-black uppercase tracking-tight text-center leading-tight", color)}>{label}</span>
+                      </button>
+                    ))}
                 </div>
               </div>
             ) : step === 3 ? (
@@ -667,6 +682,7 @@ function NotebookContent() {
                               <div className="flex gap-1">
                                 <Button
                                   onClick={() => {
+                                    if (!isAdmin && entry.type !== "infraction") return;
                                     setEditingEntryId(entry.id);
                                     setEditForm({
                                       price: entry.price?.toString() || "",
