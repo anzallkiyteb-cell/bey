@@ -3512,13 +3512,22 @@ const resolvers = {
       return true;
     },
     markNotificationsListAsRead: async (_: any, { ids }: { ids: string[] }) => {
+      console.log("markNotificationsListAsRead called with:", ids?.length, "ids");
       if (!ids || ids.length === 0) return true;
+
       // Parse IDs to numbers to match database type
       const numericIds = ids.map(id => parseInt(id)).filter(n => !isNaN(n));
+      console.log("Parsed numeric IDs:", numericIds.length);
+
       if (numericIds.length === 0) return true;
 
-      // Use explicit cast ::int[] to avoid type errors with ANY
-      await pool.query('UPDATE public.notifications SET read = TRUE WHERE id = ANY($1::int[])', [numericIds]);
+      try {
+        // Use standard ANY($1) - pg driver handles JS array -> Postgres array
+        const res = await pool.query('UPDATE public.notifications SET read = TRUE WHERE id = ANY($1)', [numericIds]);
+        console.log("Update success, rows affected:", res.rowCount);
+      } catch (err) {
+        console.error("markNotificationsListAsRead DB Error:", err);
+      }
       return true;
     },
     deleteOldNotifications: async () => {
