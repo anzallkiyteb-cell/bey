@@ -103,6 +103,8 @@ export default function AttendancePage() {
 }
 
 function AttendanceContent() {
+  const currentUser = getCurrentUser()
+  const isAdmin = currentUser?.role === 'admin'
   // Logical Today (respected 04:00 AM cutoff)
   const getLogicalNow = () => {
     const d = new Date();
@@ -547,7 +549,7 @@ function AttendanceContent() {
           </Card>
 
           {/* Top 5 Performers Card */}
-          {canSee('attendance', 'top_performers') && (
+          {isAdmin && (
             <Card className="border-[#c9b896] bg-gradient-to-br from-amber-50 to-white p-4 sm:p-6 shadow-lg rounded-xl border-2 border-amber-200">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                 <div className="flex items-center gap-3">
@@ -656,7 +658,7 @@ function AttendanceContent() {
                       <th className="px-6 py-5 font-bold text-[#8b5a2b] uppercase tracking-widest text-sm text-center">Entrée</th>
                       <th className="px-6 py-5 font-bold text-[#8b5a2b] uppercase tracking-widest text-sm text-center">Sortie</th>
                       <th className="px-6 py-5 font-bold text-[#8b5a2b] uppercase tracking-widest text-sm text-center">Shift</th>
-                      <th className="px-6 py-5 font-bold text-[#8b5a2b] uppercase tracking-widest text-sm text-center font-black">Heures</th>
+                      {isAdmin && <th className="px-6 py-5 font-bold text-[#8b5a2b] uppercase tracking-widest text-sm text-center font-black">Heures</th>}
                       <th className="px-6 py-5 font-bold text-[#8b5a2b] uppercase tracking-widest text-sm">Statut</th>
                     </tr>
                   </thead>
@@ -716,16 +718,18 @@ function AttendanceContent() {
                               {person.shift || "—"}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-center">
-                            {person.workedHours ? (
-                              <div className="flex flex-row items-baseline justify-center gap-1">
-                                <span className="text-xl font-black text-emerald-700 leading-none">{person.workedHours.split(' ')[0]}</span>
-                                <span className="text-xl font-black text-emerald-700 leading-none">{person.workedHours.split(' ')[1]}</span>
-                              </div>
-                            ) : (
-                              <span className="text-[#8b5a2b]/20">—</span>
-                            )}
-                          </td>
+                          {isAdmin && (
+                            <td className="px-6 py-4 text-center">
+                              {person.workedHours ? (
+                                <div className="flex flex-row items-baseline justify-center gap-1">
+                                  <span className="text-xl font-black text-emerald-700 leading-none">{person.workedHours.split(' ')[0]}</span>
+                                  <span className="text-xl font-black text-emerald-700 leading-none">{person.workedHours.split(' ')[1]}</span>
+                                </div>
+                              ) : (
+                                <span className="text-[#8b5a2b]/20">—</span>
+                              )}
+                            </td>
+                          )}
                           <td className="px-6 py-4">
                             <div className="flex flex-col gap-1 items-start">
                               <span className={cn(
@@ -818,10 +822,12 @@ function AttendanceContent() {
                           <span className="text-[8px] font-black text-[#8b5a2b]/50 uppercase tracking-widest">Sortie</span>
                           <span className="font-mono font-black text-[#3d2c1e] text-sm">{person.clockOut || "--:--"}</span>
                         </div>
-                        <div className="flex flex-col items-center">
-                          <span className="text-[8px] font-black text-[#8b5a2b]/50 uppercase tracking-widest">Heures</span>
-                          <span className="font-black text-emerald-700 text-sm leading-tight">{person.workedHours || "—"}</span>
-                        </div>
+                        {isAdmin && (
+                          <div className="flex flex-col items-center">
+                            <span className="text-[8px] font-black text-[#8b5a2b]/50 uppercase tracking-widest">Heures</span>
+                            <span className="font-black text-emerald-700 text-sm leading-tight">{person.workedHours || "—"}</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Footer Row: ID + Shift */}

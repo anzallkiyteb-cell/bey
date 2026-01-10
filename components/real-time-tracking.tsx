@@ -361,7 +361,9 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                 <th className="px-4 py-4 font-bold text-[#8b5a2b] uppercase tracking-widest text-[10px] sm:text-xs text-center">Sortie</th>
                 <th className="px-4 py-4 font-bold text-[#8b5a2b] uppercase tracking-widest text-[10px] sm:text-xs text-center">Shift</th>
                 <th className="px-4 py-4 font-bold text-[#8b5a2b] uppercase tracking-widest text-[10px] sm:text-xs text-center">État</th>
-                <th className="px-4 py-4 font-bold text-[#8b5a2b] uppercase tracking-widest text-[10px] sm:text-xs text-center">Heures</th>
+                {sessionUser?.role === 'admin' && (
+                  <th className="px-4 py-4 font-bold text-[#8b5a2b] uppercase tracking-widest text-[10px] sm:text-xs text-center">Heures</th>
+                )}
                 <th className="px-4 py-4 font-bold text-[#8b5a2b] uppercase tracking-widest text-[10px] sm:text-xs text-right">Action</th>
               </tr>
             </thead>
@@ -447,9 +449,11 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-4 text-center">
-                    <span className="text-base font-black text-emerald-700">{emp.totalMins > 0 ? `${Math.floor(emp.totalMins / 60)}h ${emp.totalMins % 60}m` : "0h"}</span>
-                  </td>
+                  {sessionUser?.role === 'admin' && (
+                    <td className="px-4 py-4 text-center">
+                      <span className="text-base font-black text-emerald-700">{emp.totalMins > 0 ? `${Math.floor(emp.totalMins / 60)}h ${emp.totalMins % 60}m` : "0h"}</span>
+                    </td>
+                  )}
                   <td className="px-4 py-4 text-right">
                     <Button
                       variant="outline"
@@ -561,7 +565,6 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                     </span>
                   )}
                 </div>
-
                 <div className="flex items-center gap-2 bg-[#f8f6f1] px-2 py-1 rounded-lg border border-[#c9b896]/10">
                   <span className="text-[9px] font-black text-[#8b5a2b]/70 uppercase tracking-tighter">
                     {emp.shift || "—"}
@@ -570,21 +573,26 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
               </div>
 
               {/* Time Details Grid */}
-              <div className="grid grid-cols-3 gap-2 mt-1">
+              <div className={cn(
+                "grid grid-cols-2 gap-2 mt-1",
+                sessionUser?.role === 'admin' && "grid-cols-3"
+              )}>
                 <div className="bg-[#faf8f5] p-3 rounded-2xl border border-[#c9b896]/10 flex flex-col items-center justify-center gap-0.5">
                   <span className="text-[8px] font-black text-[#8b5a2b]/40 uppercase tracking-widest">Entrée</span>
-                  <span className="font-mono font-black text-[#3d2c1e] text-base">{emp.clockIn || "--:--"}</span>
+                  <span className="font-mono font-black text-[#3d2c1e] text-sm">{emp.clockIn || "--:--"}</span>
                 </div>
                 <div className="bg-[#faf8f5] p-3 rounded-2xl border border-[#c9b896]/10 flex flex-col items-center justify-center gap-0.5">
                   <span className="text-[8px] font-black text-[#8b5a2b]/40 uppercase tracking-widest">Sortie</span>
-                  <span className="font-mono font-black text-[#3d2c1e] text-base">{emp.clockOut || "--:--"}</span>
+                  <span className="font-mono font-black text-[#3d2c1e] text-sm">{emp.clockOut || "--:--"}</span>
                 </div>
-                <div className="bg-[#f0f9f4] p-3 rounded-2xl border border-emerald-100 flex flex-col items-center justify-center gap-0.5">
-                  <span className="text-[8px] font-black text-emerald-700/50 uppercase tracking-widest">Temps</span>
-                  <span className="font-black text-emerald-700 text-base">
-                    {emp.totalMins > 0 ? `${Math.floor(emp.totalMins / 60)}h ${emp.totalMins % 60}m` : "0h"}
-                  </span>
-                </div>
+                {sessionUser?.role === 'admin' && (
+                  <div className="bg-[#f0f9f4] p-3 rounded-2xl border border-emerald-100 flex flex-col items-center justify-center gap-0.5">
+                    <span className="text-[8px] font-black text-emerald-700/50 uppercase tracking-widest">Temps</span>
+                    <span className="font-black text-emerald-700 text-base">
+                      {emp.totalMins > 0 ? `${Math.floor(emp.totalMins / 60)}h ${emp.totalMins % 60}m` : "0h"}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Footer info */}
