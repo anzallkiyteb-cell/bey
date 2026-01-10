@@ -531,12 +531,12 @@ function EmployeesContent() {
       nbmonth: employee.nbmonth || null,
       isCoupure: employee.isCoupure || false,
       isFixed: employee.isFixed || false,
-      p1_in: employee.p1_in || "08:00",
-      p1_out: employee.p1_out || "12:00",
-      p2_in: employee.p2_in || "14:00",
-      p2_out: employee.p2_out || "18:00",
-      fixed_in: employee.fixed_in || "08:00",
-      fixed_out: employee.fixed_out || "17:00",
+      p1_in: employee.p1_in || "",
+      p1_out: employee.p1_out || "",
+      p2_in: employee.p2_in || "",
+      p2_out: employee.p2_out || "",
+      fixed_in: employee.fixed_in || "",
+      fixed_out: employee.fixed_out || "",
     })
     setShowEditDialog(true)
   }
@@ -578,22 +578,34 @@ function EmployeesContent() {
         await refetchCin();
       }
 
-      // Update Schedule
-      await updateUserSchedule({
-        variables: {
-          userId: selectedEmployee.id,
-          schedule: {
-            is_coupure: formData.isCoupure,
-            is_fixed: formData.isFixed,
-            p1_in: formData.p1_in,
-            p1_out: formData.p1_out,
-            p2_in: formData.p2_in,
-            p2_out: formData.p2_out,
-            fixed_in: formData.fixed_in,
-            fixed_out: formData.fixed_out
+      // Update Schedule only if changed
+      const scheduleChanged =
+        formData.isCoupure !== selectedEmployee.isCoupure ||
+        formData.isFixed !== selectedEmployee.isFixed ||
+        (formData.p1_in || null) !== (selectedEmployee.p1_in || null) ||
+        (formData.p1_out || null) !== (selectedEmployee.p1_out || null) ||
+        (formData.p2_in || null) !== (selectedEmployee.p2_in || null) ||
+        (formData.p2_out || null) !== (selectedEmployee.p2_out || null) ||
+        (formData.fixed_in || null) !== (selectedEmployee.fixed_in || null) ||
+        (formData.fixed_out || null) !== (selectedEmployee.fixed_out || null);
+
+      if (scheduleChanged) {
+        await updateUserSchedule({
+          variables: {
+            userId: selectedEmployee.id,
+            schedule: {
+              is_coupure: formData.isCoupure,
+              is_fixed: formData.isFixed,
+              p1_in: formData.p1_in || null,
+              p1_out: formData.p1_out || null,
+              p2_in: formData.p2_in || null,
+              p2_out: formData.p2_out || null,
+              fixed_in: formData.fixed_in || null,
+              fixed_out: formData.fixed_out || null
+            }
           }
-        }
-      });
+        });
+      }
 
       setShowEditDialog(false)
       setSelectedEmployee(null)
