@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useEffect } from "react"
+import { useMemo, useEffect, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { Sidebar } from "@/components/sidebar"
 import { NotificationBell } from "@/components/notification-bell"
 import { getCurrentUser } from "@/lib/mock-data"
@@ -11,8 +12,8 @@ import { Bell, Clock, DollarSign, Calendar, Settings, CheckCheck, Trash2 } from 
 import { gql, useQuery, useMutation } from "@apollo/client"
 
 const GET_NOTIFICATIONS = gql`
-  query GetNotifications($userId: ID, $limit: Int, $excludeMachine: Boolean) {
-    getNotifications(userId: $userId, limit: $limit, excludeMachine: $excludeMachine) {
+  query GetNotifications($userId: ID, $limit: Int, $excludeMachine: Boolean, $onlyMachine: Boolean) {
+    getNotifications(userId: $userId, limit: $limit, excludeMachine: $excludeMachine, onlyMachine: $onlyMachine) {
       id
       type
       title
@@ -25,8 +26,8 @@ const GET_NOTIFICATIONS = gql`
 `;
 
 const MARK_READ = gql`
-  mutation MarkRead($userId: ID!) {
-    markNotificationsAsRead(userId: $userId)
+  mutation MarkRead($userId: ID!, $onlyMachine: Boolean) {
+    markNotificationsAsRead(userId: $userId, onlyMachine: $onlyMachine)
   }
 `;
 
@@ -37,14 +38,26 @@ const DELETE_OLD = gql`
 `;
 
 export default function NotificationsPage() {
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center bg-[#f8f6f1]">Chargement...</div>}>
+      <NotificationsContent />
+    </Suspense>
+  )
+}
+
+function NotificationsContent() {
   const currentUser = getCurrentUser()
+  const searchParams = useSearchParams()
+  const source = searchParams.get('source') // 'machine' or others
+
   const isAdminOrManager = ['admin', 'manager'].includes(currentUser?.role || '');
 
   const { data, loading, refetch, startPolling, stopPolling } = useQuery(GET_NOTIFICATIONS, {
     variables: {
       userId: isAdminOrManager ? null : currentUser?.id,
       limit: 100,
-      excludeMachine: true
+      excludeMachine: source !== 'machine',
+      onlyMachine: source === 'machine'
     },
     pollInterval: 60000,
     fetchPolicy: "cache-and-network"
@@ -87,7 +100,12 @@ export default function NotificationsPage() {
 
   const handleMarkAllRead = async () => {
     if (currentUser?.id) {
-      await markRead({ variables: { userId: currentUser.id } });
+      await markRead({
+        variables: {
+          userId: currentUser.id,
+          onlyMachine: source === 'machine'
+        }
+      });
       refetch();
     }
   }
@@ -160,10 +178,10 @@ export default function NotificationsPage() {
             <div className="flex flex-col gap-4 sm:gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h1 className="font-[family-name:var(--font-heading)] text-3xl sm:text-4xl lg:text-5xl font-bold text-[#3d2c1e]">
-                  Notifications
+                  {source === 'machine' ? 'Machine ZKTeco' : 'Notifications'}
                 </h1>
                 <p className="mt-2 text-base sm:text-lg lg:text-xl text-[#6b5744]">
-                  Activités et mises à jour du système
+                  {source === 'machine' ? 'Historique exhaustif des pointages machine' : 'Activités et mises à jour du système'}
                   {unreadCount > 0 && (
                     <Badge className="ml-3 bg-red-500 text-white text-sm lg:text-base px-3 py-1">
                       {unreadCount} non lu{unreadCount > 1 ? "s" : ""}

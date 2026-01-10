@@ -54,7 +54,8 @@ const NotificationDropdown = ({
   onItemClick,
   optimisticAllRead,
   title,
-  iconColor
+  iconColor,
+  viewAllHref = "/notifications"
 }: any) => {
   const unreadCount = useMemo(() => {
     if (optimisticAllRead) return 0;
@@ -180,7 +181,7 @@ const NotificationDropdown = ({
 
         <DropdownMenuItem asChild>
           <Link
-            href="/notifications"
+            href={viewAllHref}
             className="w-full text-center py-4 text-xs font-black uppercase tracking-widest text-[#8b5a2b] bg-[#f8f6f1]/50 hover:bg-[#f8f6f1] border-t border-[#c9b896]/30"
           >
             Toutes les notifications
@@ -336,6 +337,7 @@ export function NotificationBell() {
         onMarkAllRead={handleMarkManagerRead}
         onItemClick={handleNotificationClick}
         optimisticAllRead={optimisticManagerRead}
+        viewAllHref="/notifications?source=manager"
       />
 
       {/* Machine Bell */}
@@ -348,6 +350,7 @@ export function NotificationBell() {
         onMarkAllRead={handleMarkMachineRead}
         onItemClick={handleNotificationClick}
         optimisticAllRead={optimisticMachineRead}
+        viewAllHref="/notifications?source=machine"
       />
     </div>
   )

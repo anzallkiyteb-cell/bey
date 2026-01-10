@@ -297,7 +297,7 @@ const typeDefs = `#graphql
     updateLoginAccount(id: ID!, username: String, password: String, role: String, permissions: String): User
     deleteLoginAccount(id: ID!): Boolean
     migratePayrollUpdatedColumn(month: String!): Boolean
-    markNotificationsAsRead(userId: ID!): Boolean
+    markNotificationsAsRead(userId: ID!, onlyMachine: Boolean): Boolean
     markNotificationsListAsRead(ids: [ID]!): Boolean
     markNotificationAsRead(id: ID!): Boolean
     deleteOldNotifications: Boolean
@@ -2582,6 +2582,9 @@ const resolvers = {
         await pool.query('ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_coupure BOOLEAN DEFAULT false');
       } catch (e) { }
 
+      const oldUserRes = await pool.query('SELECT * FROM public.users WHERE id = $1', [id]);
+      const oldUser = oldUserRes.rows[0];
+
       const { username, email, phone, cin, departement, role, zktime_id, status, base_salary, photo, is_blocked, nbmonth, is_coupure, is_fixed } = input;
       const res = await pool.query(
         `UPDATE public.users
@@ -2592,10 +2595,22 @@ const resolvers = {
       );
       const updatedUser = res.rows[0];
 
+      // Detect specific changes for better notification
+      const changes = [];
+      if (oldUser.username !== updatedUser.username) changes.push(`Nom (${oldUser.username} → ${updatedUser.username})`);
+      if (oldUser["département"] !== updatedUser.departement) changes.push(`Département (${oldUser["département"]} → ${updatedUser.departement})`);
+      if (oldUser.role !== updatedUser.role) changes.push(`Rôle (${oldUser.role} → ${updatedUser.role})`);
+      if (oldUser.phone !== updatedUser.phone) changes.push(`Téléphone`);
+      if (oldUser.email !== updatedUser.email) changes.push(`Email`);
+      if (parseFloat(oldUser.base_salary || 0) !== parseFloat(updatedUser.base_salary || 0)) changes.push(`Salaire`);
+      if (oldUser.is_blocked !== updatedUser.is_blocked) changes.push(updatedUser.is_blocked ? "Bloqué" : "Débloqué");
+
       // Auto-sync if Mode Coupure changed
       await syncUserMonthAutomatically(id);
 
-      await createNotification('system', "Action Administrative: Profil Mis à Jour", `Le profil de ${updatedUser.username} a été mis à jour par un administrateur.`, updatedUser.id, context.userDone, `/employees?userId=${updatedUser.id}`);
+      if (changes.length > 0) {
+        await createNotification('system', "Action Administrative: Profil Mis à Jour", `Le profil de ${updatedUser.username} a été mis à jour: ${changes.join(', ')}.`, updatedUser.id, context.userDone, `/employees?userId=${updatedUser.id}`);
+      }
       return { ...updatedUser, is_blocked: !!updatedUser.is_blocked };
     },
     toggleUserBlock: async (_: any, { userId, isBlocked }: { userId: string, isBlocked: boolean }, context: any) => {
@@ -2803,6 +2818,9 @@ const resolvers = {
         await createNotification('schedule', "Emploi du temps créé", `L'emploi du temps de ${username} a été initialisé.`, userId, context.userDone);
         return res.rows[0];
       } else {
+        const oldRes = await pool.query('SELECT * FROM public.user_schedules WHERE user_id = $1', [userId]);
+        const oldRow = oldRes.rows[0];
+
         const res = await pool.query(
           `UPDATE public.user_schedules 
            SET dim = COALESCE($2, dim), lun = COALESCE($3, lun), mar = COALESCE($4, mar), 
@@ -2825,10 +2843,29 @@ const resolvers = {
         );
         const row = res.rows[0];
 
-        // Auto-sync current month since schedule changed
-        await syncUserMonthAutomatically(userId);
+        // Check for actual changes before notifying
+        const changed =
+          oldRow.dim !== row.dim ||
+          oldRow.lun !== row.lun ||
+          oldRow.mar !== row.mar ||
+          oldRow.mer !== row.mer ||
+          oldRow.jeu !== row.jeu ||
+          oldRow.ven !== row.ven ||
+          oldRow.sam !== row.sam ||
+          oldRow.is_coupure !== row.is_coupure ||
+          oldRow.is_fixed !== row.is_fixed ||
+          oldRow.p1_in !== row.p1_in ||
+          oldRow.p1_out !== row.p1_out ||
+          oldRow.p2_in !== row.p2_in ||
+          oldRow.p2_out !== row.p2_out ||
+          oldRow.fixed_in !== row.fixed_in ||
+          oldRow.fixed_out !== row.fixed_out;
 
-        await createNotification('schedule', "Emploi du temps modifié", `L'emploi du temps de ${row.username} a été mis à jour.`, userId, context.userDone);
+        if (changed) {
+          // Auto-sync current month since schedule changed
+          await syncUserMonthAutomatically(userId);
+          await createNotification('schedule', "Emploi du temps modifié", `L'emploi du temps de ${row.username} a été mis à jour.`, userId, context.userDone);
+        }
         return row;
       }
     },
@@ -3496,7 +3533,8 @@ const resolvers = {
         throw err;
       }
     },
-    markNotificationsAsRead: async (_: any, { userId }: { userId: string }) => {
+    markNotificationsAsRead: async (_: any, { userId, onlyMachine }: { userId: string, onlyMachine?: boolean }) => {
+      console.log(`[Mutation] markNotificationsAsRead. userId: ${userId}, onlyMachine: ${onlyMachine}`);
       let role = '';
       let dbId = userId;
       let isLoginId = userId.startsWith('login-');
@@ -3525,23 +3563,24 @@ const resolvers = {
       }
 
       const normalizedRole = (role || '').toLowerCase();
-
-      // FAILSAFE: If ID is '1' (primary admin), force admin rights for notification clearing
-      // This solves the issue where the main admin can see other users' notifications but cannot clear them
-      // because the DB lookup might classify them as a regular 'user' or checks fail.
       const effectiveRole = (userId === '1' || userId === 'user-1') ? 'admin' : normalizedRole;
 
-      // Expanded role check for safety
       if (['admin', 'manager', 'administrateur', 'superadmin'].includes(effectiveRole)) {
-        // Admins/Managers see ALL notifications
-        // UPDATE: User wants Manager "Mark All" to NOT affect Machine notifications (which have their own bell)
-        // So we filter OUT 'Machine ZKTeco' from this global clear.
-        await pool.query("UPDATE public.notifications SET read = TRUE WHERE user_done != 'Machine ZKTeco' OR user_done IS NULL");
+        if (onlyMachine) {
+          // Specifically clear only Machine notifications
+          await pool.query("UPDATE public.notifications SET read = TRUE WHERE user_done = 'Machine ZKTeco'");
+        } else {
+          // Clear everything EXCEPT Machine notifications (which have their own bell/page)
+          await pool.query("UPDATE public.notifications SET read = TRUE WHERE user_done != 'Machine ZKTeco' OR user_done IS NULL");
+        }
       } else {
-        // Regular users only clear their own notifications
-        // Ensure dbId is numeric to prevent SQL injection or type errors
+        // Regular users clear their own
         if (!isNaN(Number(dbId))) {
-          await pool.query('UPDATE public.notifications SET read = TRUE WHERE user_id = $1 OR user_id IS NULL', [dbId]);
+          if (onlyMachine) {
+            await pool.query("UPDATE public.notifications SET read = TRUE WHERE (user_id = $1 OR user_id IS NULL) AND user_done = 'Machine ZKTeco'", [dbId]);
+          } else {
+            await pool.query("UPDATE public.notifications SET read = TRUE WHERE (user_id = $1 OR user_id IS NULL) AND (user_done != 'Machine ZKTeco' OR user_done IS NULL)", [dbId]);
+          }
         }
       }
       return true;
