@@ -259,8 +259,10 @@ export function NotificationBell() {
 
     // Use efficient bulk mutation
     try {
-      await markListRead({ variables: { ids: unreadIds } });
-      refetch();
+      // Ensure IDs are strings
+      const payloadIds = unreadIds.map((id: any) => String(id));
+      await markListRead({ variables: { ids: payloadIds } });
+      await refetch();
     } catch (e) {
       console.error("Failed to mark list as read", e);
       setOptimistic(false); // Revert optimistic state on error

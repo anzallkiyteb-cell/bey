@@ -3535,25 +3535,35 @@ const resolvers = {
       return true;
     },
     markNotificationsListAsRead: async (_: any, { ids }: { ids: string[] }) => {
-      console.log("markNotificationsListAsRead called with:", ids?.length, "ids");
-      if (!ids || ids.length === 0) return true;
+      console.log(`[Mutation] markNotificationsListAsRead initiated. Count: ${ids?.length}`);
 
-      // Parse IDs to numbers to match database type
-      const numericIds = ids.map(id => parseInt(id)).filter(n => !isNaN(n));
-      console.log("Parsed numeric IDs:", numericIds.length);
-
-      if (numericIds.length === 0) return true;
-
-      try {
-        // Fallback: Iterative update to guarantee execution per row
-        // since array binding seems to be failing silently or with types
-        for (const id of numericIds) {
-          await pool.query('UPDATE public.notifications SET read = TRUE WHERE id = $1', [id]);
-        }
-        console.log("Update success, iterated over", numericIds.length, "rows");
-      } catch (err) {
-        console.error("markNotificationsListAsRead DB Error:", err);
+      if (!ids || ids.length === 0) {
+        console.log("[Mutation] No IDs provided, skipping.");
+        return true;
       }
+
+      // Log the first few IDs for debugging data type/format
+      console.log(`[Mutation] Sample IDs: ${JSON.stringify(ids.slice(0, 3))}`);
+
+      // We will loop and process. NOTE: We assume IDs are valid integers or string-integers.
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const rawId of ids) {
+        try {
+          // We use the raw ID. Postgres is smart enough to cast '123' to integer 123.
+          // If rawId is 'undefined' or empty, we skip.
+          if (!rawId) continue;
+
+          await pool.query('UPDATE public.notifications SET read = TRUE WHERE id = $1', [rawId]);
+          successCount++;
+        } catch (err) {
+          console.error(`[Mutation] Failed to update notification ID: ${rawId}`, err);
+          failCount++;
+        }
+      }
+
+      console.log(`[Mutation] Completed. Success: ${successCount}, Failed: ${failCount}`);
       return true;
     },
     deleteOldNotifications: async () => {
