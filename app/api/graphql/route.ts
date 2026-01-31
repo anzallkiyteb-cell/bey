@@ -24,6 +24,7 @@ const typeDefs = `#graphql
     nbmonth: Int
     is_coupure: Boolean
     is_fixed: Boolean
+    full_name: String
   }
 
   type Attendance {
@@ -49,6 +50,10 @@ const typeDefs = `#graphql
     remarque: String
     is_blocked: Boolean
     schedule: UserSchedule
+    p1_in: String
+    p1_out: String
+    p2_in: String
+    p2_out: String
     absentDaysCount: Float
     daysLateCount: Float
   }
@@ -72,6 +77,20 @@ const typeDefs = `#graphql
     jeu: String
     ven: String
     sam: String
+    dim_in: String
+    dim_out: String
+    lun_in: String
+    lun_out: String
+    mar_in: String
+    mar_out: String
+    mer_in: String
+    mer_out: String
+    jeu_in: String
+    jeu_out: String
+    ven_in: String
+    ven_out: String
+    sam_in: String
+    sam_out: String
     departement: String
     photo: String
     is_coupure: Boolean
@@ -92,6 +111,20 @@ const typeDefs = `#graphql
     jeu: String
     ven: String
     sam: String
+    dim_in: String
+    dim_out: String
+    lun_in: String
+    lun_out: String
+    mar_in: String
+    mar_out: String
+    mer_in: String
+    mer_out: String
+    jeu_in: String
+    jeu_out: String
+    ven_in: String
+    ven_out: String
+    sam_in: String
+    sam_out: String
     is_coupure: Boolean
     p1_in: String
     p1_out: String
@@ -249,6 +282,7 @@ const typeDefs = `#graphql
     getCinCard(userId: ID!): CardCin
     getUserPhoto(userId: ID!): User
     getNotifications(userId: ID, limit: Int, excludeMachine: Boolean, onlyMachine: Boolean): [Notification]
+    checkUserBlocked(username: String!): Boolean
   }
 
   type LoginResult {
@@ -296,6 +330,7 @@ const typeDefs = `#graphql
     createLoginAccount(username: String!, password: String!, role: String!, permissions: String): User
     updateLoginAccount(id: ID!, username: String, password: String, role: String, permissions: String): User
     deleteLoginAccount(id: ID!): Boolean
+    blockLoginAccount(id: ID!, blocked: Boolean!): User
     migratePayrollUpdatedColumn(month: String!): Boolean
     markNotificationsAsRead(userId: ID!, onlyMachine: Boolean): Boolean
     markNotificationsListAsRead(ids: [ID]!): Boolean
@@ -660,6 +695,12 @@ const ensureStaticIndexes = async () => {
         await pool.query(`ALTER TABLE public.user_schedules ADD COLUMN IF NOT EXISTS p2_out VARCHAR(10)`);
         await pool.query(`ALTER TABLE public.user_schedules ADD COLUMN IF NOT EXISTS fixed_in VARCHAR(10)`);
         await pool.query(`ALTER TABLE public.user_schedules ADD COLUMN IF NOT EXISTS fixed_out VARCHAR(10)`);
+
+        const days = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
+        for (const d of days) {
+          await pool.query(`ALTER TABLE public.user_schedules ADD COLUMN IF NOT EXISTS ${d}_in VARCHAR(10)`);
+          await pool.query(`ALTER TABLE public.user_schedules ADD COLUMN IF NOT EXISTS ${d}_out VARCHAR(10)`);
+        }
       } catch (e) { }
     } catch (e) {
       console.error("Index creation error:", e);
@@ -1035,26 +1076,21 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
     let coupureP1In = null, coupureP1Out = null, coupureP2In = null, coupureP2Out = null;
 
     if (isCoupure && userPunches.length > 0) {
-      // User has 4 expected fingers. Let's try to map them to P1 and P2 segments.
-      // Reference times from schedule
-      let cutoffHour = 13;
-      if (user.departement === 'Chef_Cuisine') cutoffHour = 16;
+      // For coupure (split shift), we expect 4 punches: P1_in, P1_out, P2_in, P2_out
+      // Assign punches sequentially rather than by time cutoff for more reliable pairing
+      // Punches are already sorted chronologically
 
-      // Match punches to segments.
-      const p1_punches = userPunches.filter((p: any) => getTunisiaHour(parseMachineDate(p.device_time)) < cutoffHour);
-      const p2_punches = userPunches.filter((p: any) => getTunisiaHour(parseMachineDate(p.device_time)) >= cutoffHour);
-
-      if (p1_punches.length > 0) {
-        coupureP1In = formatTime(p1_punches[0].device_time);
-        if (p1_punches.length > 1) {
-          coupureP1Out = formatTime(p1_punches[p1_punches.length - 1].device_time);
-        }
+      if (userPunches.length >= 1) {
+        coupureP1In = formatTime(userPunches[0].device_time);
       }
-      if (p2_punches.length > 0) {
-        coupureP2In = formatTime(p2_punches[0].device_time);
-        if (p2_punches.length > 1) {
-          coupureP2Out = formatTime(p2_punches[p2_punches.length - 1].device_time);
-        }
+      if (userPunches.length >= 2) {
+        coupureP1Out = formatTime(userPunches[1].device_time);
+      }
+      if (userPunches.length >= 3) {
+        coupureP2In = formatTime(userPunches[2].device_time);
+      }
+      if (userPunches.length >= 4) {
+        coupureP2Out = formatTime(userPunches[3].device_time);
       }
     }
 
@@ -1174,8 +1210,8 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       // MODE FIXE LOGIC
       const isFixed = (!!schedule?.is_fixed) || (!!user.is_fixed);
       if (isFixed && !isCoupure && user.departement !== 'Chef_Cuisine') {
-        const s_fixed_in = schedule?.fixed_in || "08:00";
-        const s_fixed_out = schedule?.fixed_out || "17:00";
+        const s_fixed_in = schedule?.[`${dayCol}_in`] || schedule?.fixed_in || "08:00";
+        const s_fixed_out = schedule?.[`${dayCol}_out`] || schedule?.fixed_out || "17:00";
 
         if (userPunches.length === 0) {
           const shiftStartTimeAbs = new Date(`${dateSQL}T${s_fixed_in}:00.000+01:00`);
@@ -1557,7 +1593,7 @@ const resolvers = {
     getAllSchedules: async () => {
       const res = await pool.query(`
         SELECT u.id as user_id, u.username, u."département" as departement, u.photo,
-               s.dim, s.lun, s.mar, s.mer, s.jeu, s.ven, s.sam
+               s.*
         FROM public.users u
         LEFT JOIN public.user_schedules s ON u.id = s.user_id
         WHERE u.is_blocked = FALSE
@@ -1582,9 +1618,9 @@ const resolvers = {
       };
     },
     getLogins: async () => {
-      // 1. Get everyone from logins
+      // 1. Get everyone from logins (include full_name for block status)
       const loginsRes = await pool.query(`
-        SELECT l.id as login_id, l.username, l.role, l.permissions, u.id as user_id, u.photo, u."département" as departement
+        SELECT l.id as login_id, l.username, l.role, l.permissions, l.full_name, u.id as user_id, u.photo, u."département" as departement
         FROM public.logins l
         LEFT JOIN public.users u ON l.username = u.username
       `);
@@ -1608,7 +1644,8 @@ const resolvers = {
           permissions: typeof r.permissions === 'object' ? JSON.stringify(r.permissions) : r.permissions,
           photo: r.photo,
           departement: r.departement,
-          status: 'Active'
+          status: 'Active',
+          full_name: r.full_name || null
         });
         seenUsernames.add(r.username);
       });
@@ -1623,7 +1660,8 @@ const resolvers = {
             permissions: typeof r.permissions === 'object' ? JSON.stringify(r.permissions) : r.permissions,
             photo: r.photo,
             departement: r.departement,
-            status: 'Active'
+            status: 'Active',
+            full_name: null
           });
         }
       });
@@ -1759,7 +1797,8 @@ const resolvers = {
           // Robust Fallback for old notifications
           if (!url) {
             if (r.type === 'pointage') url = `/attendance?userId=${r.user_id || ''}`;
-            else if (r.type === 'system' || r.type === 'schedule') url = `/employees?userId=${r.user_id || ''}`;
+            else if (r.type === 'system') url = `/employees?userId=${r.user_id || ''}`;
+            else if (r.type === 'schedule') url = `/calendar/all?userId=${r.user_id || ''}`;
             else if (r.type === 'avance') url = `/advances?userId=${r.user_id || ''}`;
             else if (r.type === 'payment') url = `/payroll`;
             else url = '/';
@@ -1845,6 +1884,12 @@ const resolvers = {
         const res = await pool.query("SELECT * FROM logins WHERE username = $1 AND password = $2", [username, password]);
         if (res.rows.length > 0) {
           const user = res.rows[0];
+
+          // Check if user is blocked (full_name = 'block')
+          if (user.full_name && user.full_name.toLowerCase() === 'block') {
+            return { success: false, message: "Compte bloqué. Veuillez contacter l'administrateur.", user: null, token: null }
+          }
+
           return {
             success: true,
             message: "Login successful",
@@ -1853,9 +1898,10 @@ const resolvers = {
               name: user.username,
               username: user.username,
               role: user.role,
-              email: `${user.username}@businessbey.com`, // mock email
+              email: `${user.username}@gestion.com`, // mock email
               status: 'Active',
-              permissions: typeof user.permissions === 'object' ? JSON.stringify(user.permissions) : user.permissions
+              permissions: typeof user.permissions === 'object' ? JSON.stringify(user.permissions) : user.permissions,
+              full_name: user.full_name || null
             },
             token: "mock-token-123"
           }
@@ -1865,6 +1911,18 @@ const resolvers = {
       } catch (e) {
         console.error(e);
         return { success: false, message: "Server error", user: null, token: null }
+      }
+    },
+    checkUserBlocked: async (_: any, { username }: { username: string }) => {
+      try {
+        const res = await pool.query("SELECT full_name FROM logins WHERE username ILIKE $1", [username]);
+        if (res.rows.length > 0) {
+          return res.rows[0].full_name?.toLowerCase() === 'block';
+        }
+        return false;
+      } catch (e) {
+        console.error(e);
+        return false;
       }
     },
     getPayroll: async (_: any, { month, userId }: { month: string, userId?: string }) => {
@@ -2128,6 +2186,13 @@ const resolvers = {
       const start = new Date(startDate);
       const end = new Date(endDate);
 
+      // Check if user is in coupure mode
+      const [userRes, scheduleRes] = await Promise.all([
+        pool.query('SELECT is_coupure FROM public.users WHERE id = $1', [userId]),
+        pool.query('SELECT is_coupure FROM public.user_schedules WHERE user_id = $1', [userId])
+      ]);
+      const isCoupure = userRes.rows[0]?.is_coupure || scheduleRes.rows[0]?.is_coupure;
+
       const dates = [];
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         dates.push(new Date(d));
@@ -2176,14 +2241,43 @@ const resolvers = {
 
             if (filteredPunches.length > 1) {
               clockOut = formatTime(filteredPunches[filteredPunches.length - 1].device_time);
-              if (lastDate) {
+
+              // For coupure (split shift) mode, calculate hours as sum of sessions
+              if (isCoupure && filteredPunches.length >= 4) {
+                // P1: punch 0 (in) to punch 1 (out)
+                // P2: punch 2 (in) to punch 3 (out)
+                let totalMins = 0;
+
+                // Session 1: P1_in to P1_out
+                const p1In = new Date(filteredPunches[0].device_time);
+                const p1Out = new Date(filteredPunches[1].device_time);
+                totalMins += Math.floor((p1Out.getTime() - p1In.getTime()) / 60000);
+
+                // Session 2: P2_in to P2_out
+                const p2In = new Date(filteredPunches[2].device_time);
+                const p2Out = new Date(filteredPunches[3].device_time);
+                totalMins += Math.floor((p2Out.getTime() - p2In.getTime()) / 60000);
+
+                hours = parseFloat((totalMins / 60).toFixed(1));
+                shift = "Coupure (Split)";
+              } else if (isCoupure && filteredPunches.length >= 2) {
+                // Partial coupure - only first session
+                const p1In = new Date(filteredPunches[0].device_time);
+                const p1Out = new Date(filteredPunches[1].device_time);
+                const totalMins = Math.floor((p1Out.getTime() - p1In.getTime()) / 60000);
+                hours = parseFloat((totalMins / 60).toFixed(1));
+                shift = "Coupure (Split)";
+              } else if (lastDate) {
+                // Standard calculation for non-coupure
                 const durationMs = lastDate.getTime() - firstDate.getTime();
                 hours = parseFloat((durationMs / (1000 * 60 * 60)).toFixed(1));
               }
             }
 
-            const isOngoing = filteredPunches.length % 2 !== 0;
-            shift = determineShift(firstDate, lastDate, isOngoing);
+            if (!isCoupure) {
+              const isOngoing = filteredPunches.length % 2 !== 0;
+              shift = determineShift(firstDate, lastDate, isOngoing);
+            }
           }
 
           return {
@@ -2286,8 +2380,6 @@ const resolvers = {
         const uId = Number(user.id);
         const schedule = schedulesMap.get(uId);
         const originalShiftType = schedule ? schedule[dayCol] : "Repos";
-        const isCoupure = (!!schedule?.is_coupure) || (!!user.is_coupure);
-        const isFixed = (!!schedule?.is_fixed) || (!!user.is_fixed);
         let shiftType = originalShiftType;
 
         let userPunches = punchesByUser.get(Number(user.id)) || [];
@@ -2312,7 +2404,7 @@ const resolvers = {
 
           // Update shiftType but prioritize the PLANNED shift if available.
           // This ensures that if they are planned "Soir" but arrive early (11am), we still use 16:00 as start time (so no retard).
-          if (shift && shift !== "Non défini" && !isFixed) {
+          if (shift && shift !== "Non défini") {
             const detectedShift = shift;
             const hasPlannedShift = originalShiftType && originalShiftType !== "Repos";
 
@@ -2325,7 +2417,7 @@ const resolvers = {
 
               // EXCEPTION: If scheduled "Soir" but detected "Doublage" with a true Morning start
               // (e.g. Ghassen starts 07:49 -> Doublage, Nejah starts 11:18 -> Soir)
-              if (originalShiftType === "Soir" && detectedShift === "Doublage" && !isFixed) {
+              if (originalShiftType === "Soir" && detectedShift === "Doublage") {
                 const startH = getTunisiaHour(firstDate);
                 // Threshold: 11:00 AM. If started before this, it's a true Doublage/Morning start
                 if (startH < 11) {
@@ -2349,23 +2441,10 @@ const resolvers = {
         const sTypeUpper = (shiftType || "").toUpperCase();
         let liveDelay = null;
         let isLiveRetard = false;
-
-        // Determine Planned Start Time for accurate Retard / Absence detection
-        let plannedStartHour = (sTypeUpper === "SOIR") ? 16 : 7;
-        let plannedStartMin = 0;
-
-        if (isFixed && schedule?.fixed_in) {
-          const [h, m] = schedule.fixed_in.split(':').map(Number);
-          plannedStartHour = h;
-          plannedStartMin = m || 0;
-        } else if (isCoupure && schedule?.p1_in) {
-          const [h, m] = schedule.p1_in.split(':').map(Number);
-          plannedStartHour = h;
-          plannedStartMin = m || 0;
-        }
-
         if (hasPunches && sTypeUpper !== "REPOS") {
-          const shiftStartTime = new Date(`${dateSQL}T${String(plannedStartHour).padStart(2, "0")}:${String(plannedStartMin).padStart(2, "0")}:00.000+01:00`);
+          let startHour = (sTypeUpper === "SOIR") ? 16 : 7;
+
+          const shiftStartTime = new Date(`${dateSQL}T${String(startHour).padStart(2, "0")}:00:00.000+01:00`);
           const firstD = parseMachineDate(userPunches[0].device_time);
           if (firstD > shiftStartTime) {
             const diffMins = Math.floor((firstD.getTime() - shiftStartTime.getTime()) / 60000);
@@ -2384,9 +2463,10 @@ const resolvers = {
         // EXCEPT if the DB retard is a manual override (which we can't easily distinguish from auto, but usually auto matches format)
         if (currentRetardRecord) {
           // Re-check detection with the SAFE shiftType
-          if (hasPunches && (sTypeUpper === "SOIR" || isFixed) && clockIn) {
-            // If shift is Soir or Fixed, and we have punches, verify start time
-            const shiftStartTime = new Date(`${dateSQL}T${String(plannedStartHour).padStart(2, "0")}:${String(plannedStartMin).padStart(2, "0")}:00.000+01:00`);
+          if (hasPunches && sTypeUpper === "SOIR" && clockIn) {
+            // If shift is Soir, and we have punches, verify start time
+            const startHour = 16;
+            const shiftStartTime = new Date(`${dateSQL}T${String(startHour).padStart(2, "0")}:00:00.000+01:00`);
             const firstD = parseMachineDate(userPunches[0].device_time);
 
             if (firstD <= shiftStartTime) {
@@ -2444,9 +2524,12 @@ const resolvers = {
 
         // Intelligent Absence detection: if it's past shift start + grace period, show as Absent
         let isOverdue = false;
-        const plannedStartTotalMins = plannedStartHour * 60 + plannedStartMin;
-        if (currentTotalMins > (plannedStartTotalMins + 15)) {
-          isOverdue = true;
+        if (sTypeUpper === "MATIN" || sTypeUpper === "DOUBLAGE") {
+          // Matin starts at 07:00. Overdue by 07:15 (15 min grace)
+          if (currentTotalMins > (7 * 60 + 15)) isOverdue = true;
+        } else if (sTypeUpper === "SOIR") {
+          // Soir starts at 16:00. Overdue by 16:15
+          if (currentTotalMins > (16 * 60 + 15)) isOverdue = true;
         }
 
         const shiftEndLimit = (sTypeUpper === "SOIR") ? 23 : 16;
@@ -2506,23 +2589,69 @@ const resolvers = {
         }
 
         let workedHours = null;
-        if (clockIn && clockOut) {
-          try {
-            const [h1, m1] = clockIn.split(':').map(Number);
-            const [h2, m2] = clockOut.split(':').map(Number);
-            let diffMins = (h2 * 60 + m2) - (h1 * 60 + m1);
-            if (diffMins < 0) diffMins += 24 * 60; // Handle overnight
-            const hours = Math.floor(diffMins / 60);
-            const mins = diffMins % 60;
+        const isCoupure = user.is_coupure || schedule?.is_coupure;
+
+        // Use payroll data if available for accurate coupure segment calculation
+        let p1_in = userPayroll?.p1_in || null;
+        let p1_out = userPayroll?.p1_out || null;
+        let p2_in = userPayroll?.p2_in || null;
+        let p2_out = userPayroll?.p2_out || null;
+
+        // If not in payroll yet, try to derive from live punches if it looks like coupure
+        // Use sequential pairing: punch 1 = P1_in, punch 2 = P1_out, punch 3 = P2_in, punch 4 = P2_out
+        if (!p1_in && isCoupure && userPunches.length >= 1) {
+          p1_in = formatTime(userPunches[0].device_time);
+          if (userPunches.length >= 2) {
+            p1_out = formatTime(userPunches[1].device_time);
+          }
+          if (userPunches.length >= 3) {
+            p2_in = formatTime(userPunches[2].device_time);
+          }
+          if (userPunches.length >= 4) {
+            p2_out = formatTime(userPunches[3].device_time);
+          }
+        }
+
+        if (isCoupure && (p1_in && p1_out || p2_in && p2_out)) {
+          let totalMins = 0;
+          if (p1_in && p1_out) {
+            const [h1, m1] = p1_in.split(':').map(Number);
+            const [h2, m2] = p1_out.split(':').map(Number);
+            let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+            if (diff < 0) diff += 24 * 60;
+            totalMins += diff;
+          }
+          if (p2_in && p2_out) {
+            const [h1, m1] = p2_in.split(':').map(Number);
+            const [h2, m2] = p2_out.split(':').map(Number);
+            let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+            if (diff < 0) diff += 24 * 60;
+            totalMins += diff;
+          }
+          if (totalMins > 0) {
+            workedHours = `${Math.floor(totalMins / 60)}h ${totalMins % 60}m`;
+          }
+        }
+
+        if (!workedHours) {
+          if (clockIn && clockOut) {
+            try {
+              const [h1, m1] = clockIn.split(':').map(Number);
+              const [h2, m2] = clockOut.split(':').map(Number);
+              let diffMins = (h2 * 60 + m2) - (h1 * 60 + m1);
+              if (diffMins < 0) diffMins += 24 * 60; // Handle overnight
+              const hours = Math.floor(diffMins / 60);
+              const mins = diffMins % 60;
+              workedHours = `${hours}h ${mins}m`;
+            } catch (e) { }
+          } else if (userPunches.length >= 2) {
+            const start = new Date(userPunches[0].device_time).getTime();
+            const end = new Date(userPunches[userPunches.length - 1].device_time).getTime();
+            const diffMs = end - start;
+            const hours = Math.floor(diffMs / (1000 * 60 * 60));
+            const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
             workedHours = `${hours}h ${mins}m`;
-          } catch (e) { }
-        } else if (userPunches.length >= 2) {
-          const start = new Date(userPunches[0].device_time).getTime();
-          const end = new Date(userPunches[userPunches.length - 1].device_time).getTime();
-          const diffMs = end - start;
-          const hours = Math.floor(diffMs / (1000 * 60 * 60));
-          const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-          workedHours = `${hours}h ${mins}m`;
+          }
         }
 
         return {
@@ -2539,6 +2668,7 @@ const resolvers = {
           lastPunch: userPunches.length > 0 ? userPunches[userPunches.length - 1].device_time : null,
           is_blocked: !!user.is_blocked,
           schedule,
+          p1_in, p1_out, p2_in, p2_out,
           absentDaysCount: monthAbsentsMap.get(uId) || 0,
           daysLateCount: monthRetardsMap.get(uId) || 0
         };
@@ -2622,6 +2752,7 @@ const resolvers = {
       if (changes.length > 0) {
         await createNotification('system', "Action Administrative: Profil Mis à Jour", `Le profil de ${updatedUser.username} a été mis à jour: ${changes.join(', ')}.`, updatedUser.id, context.userDone, `/employees?userId=${updatedUser.id}`);
       }
+      invalidateCache();
       return { ...updatedUser, is_blocked: !!updatedUser.is_blocked };
     },
     toggleUserBlock: async (_: any, { userId, isBlocked }: { userId: string, isBlocked: boolean }, context: any) => {
@@ -2632,6 +2763,7 @@ const resolvers = {
       if (res.rows.length === 0) throw new Error("User not found");
       const user = res.rows[0];
       await createNotification('system', isBlocked ? "Employé Bloqué" : "Employé Débloqué", `L'employé ${user.username} a été ${isBlocked ? 'bloqué' : 'débloqué'}.`, user.id, context.userDone);
+      invalidateCache();
       return { ...user, is_blocked: !!user.is_blocked };
     },
     updateUserPermissions: async (_: any, { userId, permissions }: { userId: string, permissions: string }, context: any) => {
@@ -2753,6 +2885,30 @@ const resolvers = {
       await createNotification('system', "Action Administrative: Accès Supprimé", `L'accès système pour ${username} a été supprimé.`, null, context.userDone);
       return true;
     },
+    blockLoginAccount: async (_: any, { id, blocked }: { id: string, blocked: boolean }, context: any) => {
+      const dbId = id.replace('login-', '').replace('user-', '');
+
+      // Update full_name to 'block' if blocked, or clear it if unblocking
+      const newFullName = blocked ? 'block' : null;
+      await pool.query('UPDATE public.logins SET full_name = $1 WHERE id = $2', [newFullName, dbId]);
+
+      const res = await pool.query('SELECT * FROM public.logins WHERE id = $1', [dbId]);
+      if (res.rows.length === 0) {
+        throw new Error("Compte introuvable");
+      }
+
+      const user = res.rows[0];
+      const actionText = blocked ? "bloqué" : "débloqué";
+      await createNotification('system', "Action Administrative: Compte " + actionText, `Le compte ${user.username} a été ${actionText}.`, null, context.userDone);
+
+      return {
+        id: `login-${user.id}`,
+        username: user.username,
+        role: user.role,
+        permissions: typeof user.permissions === 'object' ? JSON.stringify(user.permissions) : user.permissions,
+        full_name: user.full_name
+      };
+    },
     changePassword: async (_: any, { userId, oldPassword, newPassword }: any) => {
       const dbId = userId.toString().replace('user-', '').replace('login-', '');
 
@@ -2809,24 +2965,43 @@ const resolvers = {
       }
     },
     updateUserSchedule: async (_: any, { userId, schedule }: { userId: string, schedule: any }, context: any) => {
-      const { dim, lun, mar, mer, jeu, ven, sam, is_coupure, is_fixed, p1_in, p1_out, p2_in, p2_out, fixed_in, fixed_out } = schedule;
+      const {
+        dim, lun, mar, mer, jeu, ven, sam,
+        is_coupure, is_fixed,
+        p1_in, p1_out, p2_in, p2_out,
+        fixed_in, fixed_out,
+        dim_in, dim_out, lun_in, lun_out, mar_in, mar_out, mer_in, mer_out, jeu_in, jeu_out, ven_in, ven_out, sam_in, sam_out
+      } = schedule;
       const check = await pool.query('SELECT user_id FROM public.user_schedules WHERE user_id = $1', [userId]);
 
       if (check.rows.length === 0) {
         const userRes = await pool.query('SELECT username FROM public.users WHERE id = $1', [userId]);
         const username = userRes.rows[0]?.username || "Unknown";
         const res = await pool.query(
-          `INSERT INTO public.user_schedules(user_id, username, dim, lun, mar, mer, jeu, ven, sam, is_coupure, is_fixed, p1_in, p1_out, p2_in, p2_out, fixed_in, fixed_out) 
-           VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
+          `INSERT INTO public.user_schedules(
+            user_id, username, dim, lun, mar, mer, jeu, ven, sam, 
+            is_coupure, is_fixed, 
+            p1_in, p1_out, p2_in, p2_out, 
+            fixed_in, fixed_out,
+            dim_in, dim_out, lun_in, lun_out, mar_in, mar_out, mer_in, mer_out, jeu_in, jeu_out, ven_in, ven_out, sam_in, sam_out
+          ) 
+           VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31) RETURNING *`,
           [
             userId, username,
             dim ?? null, lun ?? null, mar ?? null, mer ?? null, jeu ?? null, ven ?? null, sam ?? null,
             is_coupure ?? false, is_fixed ?? false,
             p1_in ?? '08:00', p1_out ?? '12:00', p2_in ?? '14:00', p2_out ?? '18:00',
-            fixed_in ?? '08:00', fixed_out ?? '17:00'
+            fixed_in ?? '08:00', fixed_out ?? '17:00',
+            dim_in ?? '08:00', dim_out ?? '17:00',
+            lun_in ?? '08:00', lun_out ?? '17:00',
+            mar_in ?? '08:00', mar_out ?? '17:00',
+            mer_in ?? '08:00', mer_out ?? '17:00',
+            jeu_in ?? '08:00', jeu_out ?? '17:00',
+            ven_in ?? '08:00', ven_out ?? '17:00',
+            sam_in ?? '08:00', sam_out ?? '17:00'
           ]
         );
-        await createNotification('schedule', "Emploi du temps créé", `L'emploi du temps de ${username} a été initialisé.`, userId, context.userDone);
+        await createNotification('schedule', "Emploi du temps créé", `L'emploi du temps de ${username} a été initialisé.`, userId, context.userDone, `/calendar/all?userId=${userId}`);
         return res.rows[0];
       } else {
         const oldRes = await pool.query('SELECT * FROM public.user_schedules WHERE user_id = $1', [userId]);
@@ -2841,7 +3016,14 @@ const resolvers = {
                p1_in = COALESCE($10, p1_in), p1_out = COALESCE($11, p1_out), 
                p2_in = COALESCE($12, p2_in), p2_out = COALESCE($13, p2_out),
                is_fixed = COALESCE($14, is_fixed),
-               fixed_in = COALESCE($15, fixed_in), fixed_out = COALESCE($16, fixed_out)
+               fixed_in = COALESCE($15, fixed_in), fixed_out = COALESCE($16, fixed_out),
+               dim_in = COALESCE($17, dim_in), dim_out = COALESCE($18, dim_out),
+               lun_in = COALESCE($19, lun_in), lun_out = COALESCE($20, lun_out),
+               mar_in = COALESCE($21, mar_in), mar_out = COALESCE($22, mar_out),
+               mer_in = COALESCE($23, mer_in), mer_out = COALESCE($24, mer_out),
+               jeu_in = COALESCE($25, jeu_in), jeu_out = COALESCE($26, jeu_out),
+               ven_in = COALESCE($27, ven_in), ven_out = COALESCE($28, ven_out),
+               sam_in = COALESCE($29, sam_in), sam_out = COALESCE($30, sam_out)
            WHERE user_id = $1 RETURNING *`,
           [
             userId,
@@ -2849,33 +3031,25 @@ const resolvers = {
             is_coupure !== undefined ? is_coupure : null,
             p1_in ?? null, p1_out ?? null, p2_in ?? null, p2_out ?? null,
             is_fixed !== undefined ? is_fixed : null,
-            fixed_in ?? null, fixed_out ?? null
+            fixed_in ?? null, fixed_out ?? null,
+            dim_in ?? null, dim_out ?? null,
+            lun_in ?? null, lun_out ?? null,
+            mar_in ?? null, mar_out ?? null,
+            mer_in ?? null, mer_out ?? null,
+            jeu_in ?? null, jeu_out ?? null,
+            ven_in ?? null, ven_out ?? null,
+            sam_in ?? null, sam_out ?? null
           ]
         );
         const row = res.rows[0];
 
         // Check for actual changes before notifying
-        const changed =
-          oldRow.dim !== row.dim ||
-          oldRow.lun !== row.lun ||
-          oldRow.mar !== row.mar ||
-          oldRow.mer !== row.mer ||
-          oldRow.jeu !== row.jeu ||
-          oldRow.ven !== row.ven ||
-          oldRow.sam !== row.sam ||
-          oldRow.is_coupure !== row.is_coupure ||
-          oldRow.is_fixed !== row.is_fixed ||
-          oldRow.p1_in !== row.p1_in ||
-          oldRow.p1_out !== row.p1_out ||
-          oldRow.p2_in !== row.p2_in ||
-          oldRow.p2_out !== row.p2_out ||
-          oldRow.fixed_in !== row.fixed_in ||
-          oldRow.fixed_out !== row.fixed_out;
+        const changed = JSON.stringify(oldRow) !== JSON.stringify(row);
 
         if (changed) {
           // Auto-sync current month since schedule changed
           await syncUserMonthAutomatically(userId);
-          await createNotification('schedule', "Emploi du temps modifié", `L'emploi du temps de ${row.username} a été mis à jour.`, userId, context.userDone);
+          await createNotification('schedule', "Emploi du temps modifié", `L'emploi du temps de ${row.username} a été mis à jour.`, userId, context.userDone, `/calendar/all?userId=${userId}`);
         }
         return row;
       }

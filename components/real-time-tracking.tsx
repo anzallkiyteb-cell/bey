@@ -29,6 +29,10 @@ const GET_PERSONNEL_STATUS = gql`
       }
       clockIn
       clockOut
+      p1_in
+      p1_out
+      p2_in
+      p2_out
       state
       shift
       lastPunch
@@ -145,14 +149,33 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
         return !item.user.is_blocked && item.user.role !== 'admin'
       })
       .map((item: any) => {
-        const { user, clockIn, clockOut, shift, lastPunch, state: apiState } = item
+        const { user, clockIn, clockOut, p1_in, p1_out, p2_in, p2_out, shift, lastPunch, state: apiState } = item
 
         let status = apiState || "Absent"
         if (status === "Présent" && clockOut) status = "Terminé"
 
-        // Calculate total minutes worked
+        // Calculate total minutes worked - Support both Normal and Coupure
         let totalMins = 0;
-        if (clockIn && clockOut) {
+        if (p1_in && p1_out) {
+          try {
+            const [h1, m1] = p1_in.split(':').map(Number);
+            const [h2, m2] = p1_out.split(':').map(Number);
+            let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+            if (diff < 0) diff += 24 * 60;
+            totalMins += diff;
+          } catch (e) { }
+        }
+        if (p2_in && p2_out) {
+          try {
+            const [h1, m1] = p2_in.split(':').map(Number);
+            const [h2, m2] = p2_out.split(':').map(Number);
+            let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+            if (diff < 0) diff += 24 * 60;
+            totalMins += diff;
+          } catch (e) { }
+        }
+
+        if (totalMins === 0 && clockIn && clockOut) {
           try {
             const [h1, m1] = clockIn.split(':').map(Number);
             const [h2, m2] = clockOut.split(':').map(Number);
@@ -171,9 +194,13 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
           department: user.departement || user.department || "Personnel",
           clockIn: clockIn || "--:--",
           clockOut: clockOut || "--:--",
+          p1_in: p1_in,
+          p1_out: p1_out,
+          p2_in: p2_in,
+          p2_out: p2_out,
           totalMins: totalMins,
           shift: shift || "-",
-          isConnected: !!clockIn || !!clockOut || apiState === 'Présent' || apiState === 'Retard',
+          isConnected: !!clockIn || !!clockOut || apiState === 'Présent' || apiState === 'Retard' || !!p1_in,
           status: status,
           delay: item.delay,
           infraction: item.infraction,
@@ -235,23 +262,7 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
         <h2 className="font-[family-name:var(--font-heading)] text-xl sm:text-2xl font-bold text-[#8b5a2b]">
           Suivi en Temps Réel
         </h2>
-        <div className="flex gap-2 w-full sm:w-auto">
-          <Button
-            onClick={() => refetch()}
-            variant="outline"
-            className="border-[#8b5a2b] text-[#8b5a2b] hover:bg-[#8b5a2b] hover:text-white"
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Actualiser
-          </Button>
-          <Button
-            onClick={handleStartRealTime}
-            className="bg-[#8b5a2b] hover:bg-[#6b4423] text-white gap-2 flex-1 sm:flex-none"
-          >
-            <Radio className="h-4 w-4 animate-pulse" />
-            <span className="hidden sm:inline">Afficher</span> Temps Réel
-          </Button>
-        </div>
+
       </div>
 
       {/* Main Card */}
@@ -406,10 +417,16 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                     <span className="text-[#6b5744] font-bold text-[10px] uppercase tracking-widest px-2 py-0.5 bg-[#8b5a2b]/5 rounded border border-[#8b5a2b]/10">{emp.department}</span>
                   </td>
                   <td className="px-4 py-4 text-center">
-                    <div className="font-mono font-black text-[#3d2c1e] text-base">{emp.clockIn}</div>
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="font-mono font-black text-[#3d2c1e] text-base">{emp.p1_in || emp.clockIn || "--:--"}</div>
+                      {emp.p2_in && <div className="font-mono font-bold text-[#8b5a2b] text-[10px] border-t border-[#c9b896]/30 pt-1 leading-none">{emp.p2_in}</div>}
+                    </div>
                   </td>
                   <td className="px-4 py-4 text-center">
-                    <div className="font-mono font-black text-[#3d2c1e] text-base">{emp.clockOut}</div>
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="font-mono font-black text-[#3d2c1e] text-base">{emp.p1_out || emp.clockOut || "--:--"}</div>
+                      {emp.p2_out && <div className="font-mono font-bold text-[#8b5a2b] text-[10px] border-t border-[#c9b896]/30 pt-1 leading-none">{emp.p2_out}</div>}
+                    </div>
                   </td>
                   <td className="px-4 py-4 text-center">
                     <span className={cn(
@@ -417,7 +434,8 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                       emp.shift === "Soir" ? "bg-indigo-50 text-indigo-700 border-indigo-100" :
                         emp.shift === "Matin" ? "bg-amber-50 text-amber-700 border-amber-100" :
                           emp.shift === "Doublage" ? "bg-purple-50 text-purple-700 border-purple-100" :
-                            "bg-gray-50 text-gray-500 border-gray-100"
+                            emp.shift?.includes("Coupure") ? "bg-teal-50 text-teal-700 border-teal-100" :
+                              "bg-gray-50 text-gray-500 border-gray-100"
                     )}>
                       {emp.shift || "—"}
                     </span>
@@ -577,13 +595,19 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
                 "grid grid-cols-2 gap-2 mt-1",
                 sessionUser?.role === 'admin' && "grid-cols-3"
               )}>
-                <div className="bg-[#faf8f5] p-3 rounded-2xl border border-[#c9b896]/10 flex flex-col items-center justify-center gap-0.5">
-                  <span className="text-[8px] font-black text-[#8b5a2b]/40 uppercase tracking-widest">Entrée</span>
-                  <span className="font-mono font-black text-[#3d2c1e] text-sm">{emp.clockIn || "--:--"}</span>
+                <div className="bg-[#faf8f5] p-3 rounded-2xl border border-[#c9b896]/10 flex flex-col items-center justify-center">
+                  <span className="text-[8px] font-black text-[#8b5a2b]/40 uppercase tracking-widest mb-1">Entrée</span>
+                  <div className="flex flex-col items-center leading-tight">
+                    <span className="font-mono font-black text-[#3d2c1e] text-sm">{emp.p1_in || emp.clockIn || "--:--"}</span>
+                    {emp.p2_in && <span className="font-mono font-bold text-[#8b5a2b] text-[10px] opacity-70 border-t border-[#c9b896]/20 mt-0.5">{emp.p2_in}</span>}
+                  </div>
                 </div>
-                <div className="bg-[#faf8f5] p-3 rounded-2xl border border-[#c9b896]/10 flex flex-col items-center justify-center gap-0.5">
-                  <span className="text-[8px] font-black text-[#8b5a2b]/40 uppercase tracking-widest">Sortie</span>
-                  <span className="font-mono font-black text-[#3d2c1e] text-sm">{emp.clockOut || "--:--"}</span>
+                <div className="bg-[#faf8f5] p-3 rounded-2xl border border-[#c9b896]/10 flex flex-col items-center justify-center">
+                  <span className="text-[8px] font-black text-[#8b5a2b]/40 uppercase tracking-widest mb-1">Sortie</span>
+                  <div className="flex flex-col items-center leading-tight">
+                    <span className="font-mono font-black text-[#3d2c1e] text-sm">{emp.p1_out || emp.clockOut || "--:--"}</span>
+                    {emp.p2_out && <span className="font-mono font-bold text-[#8b5a2b] text-[10px] opacity-70 border-t border-[#c9b896]/20 mt-0.5">{emp.p2_out}</span>}
+                  </div>
                 </div>
                 {sessionUser?.role === 'admin' && (
                   <div className="bg-[#f0f9f4] p-3 rounded-2xl border border-emerald-100 flex flex-col items-center justify-center gap-0.5">
@@ -597,7 +621,7 @@ export function RealTimeTracking({ initialData }: { initialData?: any }) {
 
               {/* Footer info */}
               <div className="flex items-center justify-between text-[9px] font-bold text-[#8b5a2b]/30 uppercase tracking-[0.2em] px-1">
-                <span>Business Bey — L'aouina</span>
+                <span></span>
                 <span>{format(date || new Date(), "dd/MM/yyyy")}</span>
               </div>
             </div>

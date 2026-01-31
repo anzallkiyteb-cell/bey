@@ -28,7 +28,8 @@ import {
     Maximize2
 } from "lucide-react"
 import Link from "next/link"
-import { useState, useMemo, useRef } from "react"
+import { useSearchParams } from "next/navigation"
+import { useState, useMemo, useRef, useEffect } from "react"
 import { gql, useQuery, useMutation } from "@apollo/client"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -39,6 +40,22 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 
 const GET_ALL_SCHEDULES = gql`
   query GetAllSchedules {
@@ -54,6 +71,28 @@ const GET_ALL_SCHEDULES = gql`
       sam
       departement
       photo
+      is_coupure
+      is_fixed
+      p1_in
+      p1_out
+      p2_in
+      p2_out
+      fixed_in
+      fixed_out
+      dim_in
+      dim_out
+      lun_in
+      lun_out
+      mar_in
+      mar_out
+      mer_in
+      mer_out
+      jeu_in
+      jeu_out
+      ven_in
+      ven_out
+      sam_in
+      sam_out
     }
   }
 `
@@ -70,6 +109,28 @@ const UPDATE_USER_SCHEDULE = gql`
       jeu
       ven
       sam
+      is_coupure
+      is_fixed
+      p1_in
+      p1_out
+      p2_in
+      p2_out
+      fixed_in
+      fixed_out
+      dim_in
+      dim_out
+      lun_in
+      lun_out
+      mar_in
+      mar_out
+      mer_in
+      mer_out
+      jeu_in
+      jeu_out
+      ven_in
+      ven_out
+      sam_in
+      sam_out
     }
   }
 `
@@ -97,9 +158,31 @@ export default function AllSchedulesPlacementPage() {
     const [updateSchedule] = useMutation(UPDATE_USER_SCHEDULE)
 
     const [searchQuery, setSearchQuery] = useState("")
+    const searchParams = useSearchParams()
     const [updatingId, setUpdatingId] = useState<string | null>(null)
     const [isCompact, setIsCompact] = useState(true)
     const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+    const [isSaving, setIsSaving] = useState(false)
+    const [showDetailDialog, setShowDetailDialog] = useState(false)
+    const [selectedEmployee, setSelectedEmployee] = useState<any>(null)
+    const [highlightUserId, setHighlightUserId] = useState<string | null>(null)
+    const [detailFormData, setDetailFormData] = useState<any>({
+        is_coupure: false,
+        is_fixed: false,
+        fixed_in: "08:00",
+        fixed_out: "17:00",
+        p1_in: "08:00",
+        p1_out: "12:00",
+        p2_in: "14:00",
+        p2_out: "18:00",
+        dim_in: "08:00", dim_out: "17:00",
+        lun_in: "08:00", lun_out: "17:00",
+        mar_in: "08:00", mar_out: "17:00",
+        mer_in: "08:00", mer_out: "17:00",
+        jeu_in: "08:00", jeu_out: "17:00",
+        ven_in: "08:00", ven_out: "17:00",
+        sam_in: "08:00", sam_out: "17:00",
+    })
     const longPressTimer = useRef<any>(null)
 
     const schedules = data?.getAllSchedules || []
@@ -148,19 +231,119 @@ export default function AllSchedulesPlacementPage() {
         })
     }, [filteredSchedules])
 
+    const autoOpenDone = useRef<string | null>(null);
+
+    useEffect(() => {
+        const uId = searchParams.get('userId');
+        if (uId && schedules.length > 0 && autoOpenDone.current !== uId) {
+            const emp = schedules.find((s: any) => s.user_id === uId);
+            if (emp) {
+                autoOpenDone.current = uId;
+                handleEmployeeClick(emp);
+                setHighlightUserId(uId);
+
+                // Scroll to the user after a short delay to allow DOM to settle
+                setTimeout(() => {
+                    const el = document.getElementById(`user-${uId}`);
+                    if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 500);
+
+                const timer = setTimeout(() => {
+                    setHighlightUserId(null);
+                }, 10000);
+                return () => clearTimeout(timer);
+            }
+        }
+    }, [searchParams, schedules]);
+
+    const handleEmployeeClick = (user: any) => {
+        if (!user) return;
+        setSelectedEmployee(user)
+
+        // Ensure we preserve the existing shift assignments if they exist
+        const shifts: any = {};
+        DAYS.forEach(day => {
+            shifts[day.key] = user[day.key] || "Repos";
+        });
+
+        setDetailFormData({
+            ...shifts,
+            is_coupure: user.is_coupure === true,
+            is_fixed: user.is_fixed === true,
+            fixed_in: user.fixed_in || "08:00",
+            fixed_out: user.fixed_out || "17:00",
+            p1_in: user.p1_in || "08:00",
+            p1_out: user.p1_out || "12:00",
+            p2_in: user.p2_in || "14:00",
+            p2_out: user.p2_out || "18:00",
+            dim_in: user.dim_in || "08:00", dim_out: user.dim_out || "17:00",
+            lun_in: user.lun_in || "08:00", lun_out: user.lun_out || "17:00",
+            mar_in: user.mar_in || "08:00", mar_out: user.mar_out || "17:00",
+            mer_in: user.mer_in || "08:00", mer_out: user.mer_out || "17:00",
+            jeu_in: user.jeu_in || "08:00", jeu_out: user.jeu_out || "17:00",
+            ven_in: user.ven_in || "08:00", ven_out: user.ven_out || "17:00",
+            sam_in: user.sam_in || "08:00", sam_out: user.sam_out || "17:00",
+        })
+        setShowDetailDialog(true)
+    }
+
+    const handleSaveDetail = async () => {
+        if (!selectedEmployee) return
+        setIsSaving(true)
+        try {
+            await updateSchedule({
+                variables: {
+                    userId: selectedEmployee.user_id,
+                    schedule: {
+                        dim: detailFormData.dim || "Repos",
+                        lun: detailFormData.lun || "Repos",
+                        mar: detailFormData.mar || "Repos",
+                        mer: detailFormData.mer || "Repos",
+                        jeu: detailFormData.jeu || "Repos",
+                        ven: detailFormData.ven || "Repos",
+                        sam: detailFormData.sam || "Repos",
+                        is_coupure: detailFormData.is_coupure,
+                        is_fixed: detailFormData.is_fixed,
+                        p1_in: detailFormData.p1_in,
+                        p1_out: detailFormData.p1_out,
+                        p2_in: detailFormData.p2_in,
+                        p2_out: detailFormData.p2_out,
+                        fixed_in: detailFormData.fixed_in,
+                        fixed_out: detailFormData.fixed_out,
+                        dim_in: detailFormData.dim_in, dim_out: detailFormData.dim_out,
+                        lun_in: detailFormData.lun_in, lun_out: detailFormData.lun_out,
+                        mar_in: detailFormData.mar_in, mar_out: detailFormData.mar_out,
+                        mer_in: detailFormData.mer_in, mer_out: detailFormData.mer_out,
+                        jeu_in: detailFormData.jeu_in, jeu_out: detailFormData.jeu_out,
+                        ven_in: detailFormData.ven_in, ven_out: detailFormData.ven_out,
+                        sam_in: detailFormData.sam_in, sam_out: detailFormData.sam_out,
+                    }
+                }
+            })
+            await refetch()
+            setShowDetailDialog(false)
+        } catch (e) {
+            console.error("Update failed", e)
+        } finally {
+            setIsSaving(false)
+        }
+    }
+
     const handleUpdateShift = async (user: any, dayKey: string, newShift: string) => {
         const userId = user.user_id
         setUpdatingId(`${userId}-${dayKey}`)
         setOpenMenuId(null) // Close menu after selection
 
         const currentSchedule = {
-            dim: user.dim || "Repos",
-            lun: user.lun || "Repos",
-            mar: user.mar || "Repos",
-            mer: user.mer || "Repos",
-            jeu: user.jeu || "Repos",
-            ven: user.ven || "Repos",
-            sam: user.sam || "Repos",
+            dim: user.dim,
+            lun: user.lun,
+            mar: user.mar,
+            mer: user.mer,
+            jeu: user.jeu,
+            ven: user.ven,
+            sam: user.sam,
             [dayKey]: newShift
         }
 
@@ -330,14 +513,17 @@ export default function AllSchedulesPlacementPage() {
                                                                     >
                                                                         <DropdownMenuTrigger asChild>
                                                                             <button
+                                                                                id={`user-${emp.user_id}`}
                                                                                 disabled={isUpdating}
+                                                                                onClick={() => handleEmployeeClick(emp)}
                                                                                 onPointerDown={() => onLongPressStart(`${emp.user_id}-${day.key}`)}
                                                                                 onPointerUp={onLongPressEnd}
                                                                                 onPointerLeave={onLongPressEnd}
                                                                                 className={cn(
                                                                                     "flex items-center gap-1 lg:gap-2 px-1 lg:px-1.5 py-1 lg:py-1.5 rounded-md lg:rounded-lg transition-all active:scale-95 text-left w-full overflow-hidden border shadow-[0_1px_2px_rgba(0,0,0,0.05)]",
-                                                                                    displayStyle.iconBg, "hover:shadow-md",
-                                                                                    displayStyle.border,
+                                                                                    highlightUserId === emp.user_id ? "bg-amber-200 border-amber-500 scale-105 shadow-xl ring-2 ring-amber-400 z-10 animate-pulse" : displayStyle.iconBg,
+                                                                                    "hover:shadow-md",
+                                                                                    highlightUserId === emp.user_id ? "border-amber-500" : displayStyle.border,
                                                                                     isUpdating && "opacity-50 grayscale cursor-not-allowed"
                                                                                 )}
                                                                             >
@@ -395,6 +581,186 @@ export default function AllSchedulesPlacementPage() {
                 </div>
 
             </main>
+
+            <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
+                <DialogContent className="max-w-2xl bg-[#fbf9f6] border-[#c9b896]/30">
+                    <DialogHeader>
+                        <DialogTitle className="text-2xl font-black text-[#3d2c1e] flex items-center gap-3">
+                            <Clock className="h-6 w-6 text-[#8b5a2b]" />
+                            Configuration Planning: {selectedEmployee?.username}
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    <div className="py-4 space-y-6 max-h-[70vh] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-[#8b5a2b]/20">
+                        {/* Mode Selection */}
+                        <div className="grid grid-cols-3 gap-3">
+                            <Button
+                                variant={(!detailFormData.is_fixed && !detailFormData.is_coupure) ? "default" : "outline"}
+                                onClick={() => setDetailFormData({ ...detailFormData, is_fixed: false, is_coupure: false })}
+                                className={cn("h-12 font-bold", (!detailFormData.is_fixed && !detailFormData.is_coupure) && "bg-[#8b5a2b] text-white hover:bg-[#6b4521]")}
+                            >
+                                Normal
+                            </Button>
+                            <Button
+                                variant={detailFormData.is_coupure ? "default" : "outline"}
+                                onClick={() => setDetailFormData({ ...detailFormData, is_coupure: true, is_fixed: false })}
+                                className={cn("h-12 font-bold", detailFormData.is_coupure && "bg-[#8b5a2b] text-white hover:bg-[#6b4521]")}
+                            >
+                                Coupure
+                            </Button>
+                            <Button
+                                variant={detailFormData.is_fixed ? "default" : "outline"}
+                                onClick={() => setDetailFormData({ ...detailFormData, is_fixed: true, is_coupure: false })}
+                                className={cn("h-12 font-bold", detailFormData.is_fixed && "bg-[#8b5a2b] text-white hover:bg-[#6b4521]")}
+                            >
+                                Fixe
+                            </Button>
+                        </div>
+
+                        {/* Mode Coupure Details */}
+                        {detailFormData.is_coupure && (
+                            <div className="p-4 bg-white rounded-xl border border-[#c9b896]/20 grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div className="space-y-1.5">
+                                    <Label className="text-[10px] uppercase font-bold text-[#8b5a2b]">Début P1</Label>
+                                    <Input type="time" value={detailFormData.p1_in} onChange={e => setDetailFormData({ ...detailFormData, p1_in: e.target.value })} />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label className="text-[10px] uppercase font-bold text-[#8b5a2b]">Fin P1</Label>
+                                    <Input type="time" value={detailFormData.p1_out} onChange={e => setDetailFormData({ ...detailFormData, p1_out: e.target.value })} />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label className="text-[10px] uppercase font-bold text-[#8b5a2b]">Début P2</Label>
+                                    <Input type="time" value={detailFormData.p2_in} onChange={e => setDetailFormData({ ...detailFormData, p2_in: e.target.value })} />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label className="text-[10px] uppercase font-bold text-[#8b5a2b]">Fin P2</Label>
+                                    <Input type="time" value={detailFormData.p2_out} onChange={e => setDetailFormData({ ...detailFormData, p2_out: e.target.value })} />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Mode Fixe Details */}
+                        {detailFormData.is_fixed && (
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <Label className="font-bold text-[#3d2c1e]">Planning Hebdomadaire</Label>
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        type="button"
+                                        className="text-[10px] h-7 bg-[#8b5a2b]/10 text-[#8b5a2b] hover:bg-[#8b5a2b]/20"
+                                        onClick={() => {
+                                            const firstIn = detailFormData.lun_in || "08:00"
+                                            const firstOut = detailFormData.lun_out || "17:00"
+                                            setDetailFormData({
+                                                ...detailFormData,
+                                                dim_in: firstIn, dim_out: firstOut,
+                                                lun_in: firstIn, lun_out: firstOut,
+                                                mar_in: firstIn, mar_out: firstOut,
+                                                mer_in: firstIn, mer_out: firstOut,
+                                                jeu_in: firstIn, jeu_out: firstOut,
+                                                ven_in: firstIn, ven_out: firstOut,
+                                                sam_in: firstIn, sam_out: firstOut,
+                                            })
+                                        }}
+                                    >
+                                        Appliquer lundi à tous
+                                    </Button>
+                                </div>
+                                <div className="grid gap-2">
+                                    {DAYS.map(day => (
+                                        <div key={day.key} className="flex items-center justify-between p-2 bg-white rounded-lg border border-[#c9b896]/10">
+                                            <span className="text-xs font-bold w-20">{day.label}</span>
+                                            <div className="flex items-center gap-2">
+                                                <Input className="h-8 text-xs w-24" type="time" value={detailFormData[`${day.key}_in`]} onChange={e => setDetailFormData({ ...detailFormData, [`${day.key}_in`]: e.target.value })} />
+                                                <span className="text-[10px] font-bold text-[#8b5a2b]">à</span>
+                                                <Input className="h-8 text-xs w-24" type="time" value={detailFormData[`${day.key}_out`]} onChange={e => setDetailFormData({ ...detailFormData, [`${day.key}_out`]: e.target.value })} />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Summary of shift status & Quick Shift Edit */}
+                        <div className="p-6 bg-[#fdfaf3] rounded-[32px] border border-[#e8dfcf] shadow-inner relative overflow-hidden">
+                            {/* Decorative background element */}
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-[#8b5a2b]/5 rounded-full -mr-16 -mt-16 blur-3xl pointer-events-none"></div>
+
+                            <div className="flex items-center gap-4 mb-8">
+                                <div className="h-12 w-12 rounded-2xl bg-[#3d2c1e] flex items-center justify-center shadow-2xl shadow-[#3d2c1e]/20 border border-white/10">
+                                    <Clock className="h-6 w-6 text-[#8b5a2b]" />
+                                </div>
+                                <div className="flex flex-col">
+                                    <h4 className="text-[15px] font-black uppercase text-[#3d2c1e] tracking-tight leading-none">Matrice des Horaires</h4>
+                                    <p className="text-[9px] font-extrabold text-[#8b5a2b]/50 uppercase tracking-[0.3em] mt-1.5">Weekly Shift Orchestrator</p>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {DAYS.map(day => (
+                                    <div key={day.key} className="bg-white/80 backdrop-blur-sm rounded-[24px] border border-[#c9b896]/30 p-1 flex items-center justify-between shadow-sm transition-all hover:border-[#8b5a2b]/50 hover:shadow-[0_8px_24px_rgba(139,90,43,0.08)] group">
+                                        <div className="flex items-center gap-3 pl-4">
+                                            <div className="flex flex-col">
+                                                <span className="text-[11px] font-black text-[#3d2c1e] uppercase tracking-tighter leading-none">{day.label}</span>
+                                                <span className="text-[8px] font-black text-[#8b5a2b]/40 uppercase tracking-[0.2em] mt-1">{day.short}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="w-[140px]">
+                                            <Select
+                                                value={detailFormData[day.key] || "Repos"}
+                                                onValueChange={(val) => setDetailFormData({ ...detailFormData, [day.key]: val })}
+                                            >
+                                                <SelectTrigger className="h-11 text-[11px] font-black bg-[#fbf9f6] border-[#c9b896]/20 focus:ring-0 focus:ring-offset-0 rounded-[20px] px-4 hover:bg-white hover:border-[#8b5a2b]/30 transition-all">
+                                                    <div className="flex items-center gap-2.5 min-w-0">
+                                                        {(() => {
+                                                            const currentShift = SHIFT_OPTIONS.find(o => o.value === (detailFormData[day.key] || "Repos"));
+                                                            return currentShift ? (
+                                                                <>
+                                                                    <div className={cn("p-1 rounded-lg", currentShift.bg)}>
+                                                                        <currentShift.icon className={cn("h-3.5 w-3.5 shrink-0", currentShift.color)} />
+                                                                    </div>
+                                                                    <span className="truncate tracking-tight">{currentShift.label}</span>
+                                                                </>
+                                                            ) : <SelectValue />;
+                                                        })()}
+                                                    </div>
+                                                </SelectTrigger>
+                                                <SelectContent className="rounded-[24px] border-[#c9b896]/40 shadow-2xl p-2 bg-[#fdfaf3]">
+                                                    {SHIFT_OPTIONS.filter(o => o.value !== null).map(opt => (
+                                                        <SelectItem key={opt.value} value={opt.value!} className="text-[11px] font-black py-3 rounded-[18px] transition-all cursor-pointer focus:bg-[#8b5a2b] focus:text-white group">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className={cn("p-2 rounded-xl border border-black/5 transition-colors", opt.bg, "group-focus:bg-white/20 group-focus:border-transparent")}>
+                                                                    <opt.icon className={cn("h-4 w-4", opt.color, "group-focus:text-white")} />
+                                                                </div>
+                                                                <span className="tracking-tight uppercase">{opt.label}</span>
+                                                            </div>
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <DialogFooter className="bg-white/50 p-4 -mx-6 -mb-6 rounded-b-lg border-t border-[#c9b896]/20">
+                        <Button variant="outline" onClick={() => setShowDetailDialog(false)} className="font-bold border-[#c9b896]/50">
+                            Annuler
+                        </Button>
+                        <Button
+                            onClick={handleSaveDetail}
+                            disabled={isSaving}
+                            className="bg-[#8b5a2b] hover:bg-[#6b4521] text-white font-bold min-w-[120px]"
+                        >
+                            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enregistrer les modifications"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* --- INJECTED GLOBAL STYLES FOR TABLE PERFORMANCE --- */}
             <style jsx global>{`

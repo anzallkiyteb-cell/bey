@@ -8,8 +8,8 @@ import "./globals.css"
 // The app uses CSS variables and Tailwind's `font-sans` as a safe fallback.
 
 export const metadata: Metadata = {
-  title: "Business Bey l'aouina - Gestion des Employés",
-  description: "Restaurant & Café de Luxe - Plateforme de Gestion des Employés",
+  title: "Gestion des Employés",
+  description: "Plateforme de Gestion des Employés",
   generator: "v0.app",
   icons: {
     icon: "/images/logo.jpeg",

@@ -53,6 +53,20 @@ const GET_ALL_EMPLOYEES = gql`
         p2_out
         fixed_in
         fixed_out
+        dim_in
+        dim_out
+        lun_in
+        lun_out
+        mar_in
+        mar_out
+        mer_in
+        mer_out
+        jeu_in
+        jeu_out
+        ven_in
+        ven_out
+        sam_in
+        sam_out
       }
     }
   }
@@ -126,6 +140,20 @@ const UPDATE_USER_SCHEDULE = gql`
       p2_out
       fixed_in
       fixed_out
+      dim_in
+      dim_out
+      lun_in
+      lun_out
+      mar_in
+      mar_out
+      mer_in
+      mer_out
+      jeu_in
+      jeu_out
+      ven_in
+      ven_out
+      sam_in
+      sam_out
     }
   }
 `
@@ -194,6 +222,13 @@ function EmployeesContent() {
     p2_out: "18:00",
     fixed_in: "08:00",
     fixed_out: "17:00",
+    dim_in: "08:00", dim_out: "17:00",
+    lun_in: "08:00", lun_out: "17:00",
+    mar_in: "08:00", mar_out: "17:00",
+    mer_in: "08:00", mer_out: "17:00",
+    jeu_in: "08:00", jeu_out: "17:00",
+    ven_in: "08:00", ven_out: "17:00",
+    sam_in: "08:00", sam_out: "17:00",
   })
 
   const [showCinPhotoDialog, setShowCinPhotoDialog] = useState(false)
@@ -212,7 +247,14 @@ function EmployeesContent() {
   });
 
   const [toggleUserBlock] = useMutation(TOGGLE_USER_BLOCK, {
-    onCompleted: () => refetch()
+    onCompleted: () => refetch(),
+    optimisticResponse: (variables) => ({
+      toggleUserBlock: {
+        __typename: 'User',
+        id: variables.userId,
+        is_blocked: variables.isBlocked
+      }
+    })
   });
 
   const [updateUserSchedule] = useMutation(UPDATE_USER_SCHEDULE);
@@ -240,7 +282,7 @@ function EmployeesContent() {
     return data.personnelStatus.map((p: any) => ({
       id: p.user.id,
       name: p.user.username,
-      email: p.user.email || `${p.user.username?.toLowerCase().replace(/ /g, '.')}@businessbey.com`,
+      email: p.user.email || `${p.user.username?.toLowerCase().replace(/ /g, '.')}@gestion.com`,
       phone: p.user.phone || "",
       cin: p.user.cin || "",
       department: p.user.departement || "Non assigné",
@@ -260,6 +302,13 @@ function EmployeesContent() {
       p2_out: p.schedule?.p2_out || "18:00",
       fixed_in: p.schedule?.fixed_in || "08:00",
       fixed_out: p.schedule?.fixed_out || "17:00",
+      dim_in: p.schedule?.dim_in || "08:00", dim_out: p.schedule?.dim_out || "17:00",
+      lun_in: p.schedule?.lun_in || "08:00", lun_out: p.schedule?.lun_out || "17:00",
+      mar_in: p.schedule?.mar_in || "08:00", mar_out: p.schedule?.mar_out || "17:00",
+      mer_in: p.schedule?.mer_in || "08:00", mer_out: p.schedule?.mer_out || "17:00",
+      jeu_in: p.schedule?.jeu_in || "08:00", jeu_out: p.schedule?.jeu_out || "17:00",
+      ven_in: p.schedule?.ven_in || "08:00", ven_out: p.schedule?.ven_out || "17:00",
+      sam_in: p.schedule?.sam_in || "08:00", sam_out: p.schedule?.sam_out || "17:00",
     }));
   }, [data]);
 
@@ -341,6 +390,13 @@ function EmployeesContent() {
       p2_out: "18:00",
       fixed_in: "08:00",
       fixed_out: "17:00",
+      dim_in: "08:00", dim_out: "17:00",
+      lun_in: "08:00", lun_out: "17:00",
+      mar_in: "08:00", mar_out: "17:00",
+      mer_in: "08:00", mer_out: "17:00",
+      jeu_in: "08:00", jeu_out: "17:00",
+      ven_in: "08:00", ven_out: "17:00",
+      sam_in: "08:00", sam_out: "17:00",
     })
   }
 
@@ -496,7 +552,14 @@ function EmployeesContent() {
               p2_in: formData.p2_in,
               p2_out: formData.p2_out,
               fixed_in: formData.fixed_in,
-              fixed_out: formData.fixed_out
+              fixed_out: formData.fixed_out,
+              dim_in: formData.dim_in, dim_out: formData.dim_out,
+              lun_in: formData.lun_in, lun_out: formData.lun_out,
+              mar_in: formData.mar_in, mar_out: formData.mar_out,
+              mer_in: formData.mer_in, mer_out: formData.mer_out,
+              jeu_in: formData.jeu_in, jeu_out: formData.jeu_out,
+              ven_in: formData.ven_in, ven_out: formData.ven_out,
+              sam_in: formData.sam_in, sam_out: formData.sam_out,
             }
           }
         });
@@ -537,6 +600,13 @@ function EmployeesContent() {
       p2_out: employee.p2_out || "",
       fixed_in: employee.fixed_in || "",
       fixed_out: employee.fixed_out || "",
+      dim_in: employee.dim_in || "08:00", dim_out: employee.dim_out || "17:00",
+      lun_in: employee.lun_in || "08:00", lun_out: employee.lun_out || "17:00",
+      mar_in: employee.mar_in || "08:00", mar_out: employee.mar_out || "17:00",
+      mer_in: employee.mer_in || "08:00", mer_out: employee.mer_out || "17:00",
+      jeu_in: employee.jeu_in || "08:00", jeu_out: employee.jeu_out || "17:00",
+      ven_in: employee.ven_in || "08:00", ven_out: employee.ven_out || "17:00",
+      sam_in: employee.sam_in || "08:00", sam_out: employee.sam_out || "17:00",
     })
     setShowEditDialog(true)
   }
@@ -587,7 +657,14 @@ function EmployeesContent() {
         (formData.p2_in || null) !== (selectedEmployee.p2_in || null) ||
         (formData.p2_out || null) !== (selectedEmployee.p2_out || null) ||
         (formData.fixed_in || null) !== (selectedEmployee.fixed_in || null) ||
-        (formData.fixed_out || null) !== (selectedEmployee.fixed_out || null);
+        (formData.fixed_out || null) !== (selectedEmployee.fixed_out || null) ||
+        formData.dim_in !== selectedEmployee.dim_in || formData.dim_out !== selectedEmployee.dim_out ||
+        formData.lun_in !== selectedEmployee.lun_in || formData.lun_out !== selectedEmployee.lun_out ||
+        formData.mar_in !== selectedEmployee.mar_in || formData.mar_out !== selectedEmployee.mar_out ||
+        formData.mer_in !== selectedEmployee.mer_in || formData.mer_out !== selectedEmployee.mer_out ||
+        formData.jeu_in !== selectedEmployee.jeu_in || formData.jeu_out !== selectedEmployee.jeu_out ||
+        formData.ven_in !== selectedEmployee.ven_in || formData.ven_out !== selectedEmployee.ven_out ||
+        formData.sam_in !== selectedEmployee.sam_in || formData.sam_out !== selectedEmployee.sam_out;
 
       if (scheduleChanged) {
         await updateUserSchedule({
@@ -601,7 +678,14 @@ function EmployeesContent() {
               p2_in: formData.p2_in || null,
               p2_out: formData.p2_out || null,
               fixed_in: formData.fixed_in || null,
-              fixed_out: formData.fixed_out || null
+              fixed_out: formData.fixed_out || null,
+              dim_in: formData.dim_in, dim_out: formData.dim_out,
+              lun_in: formData.lun_in, lun_out: formData.lun_out,
+              mar_in: formData.mar_in, mar_out: formData.mar_out,
+              mer_in: formData.mer_in, mer_out: formData.mer_out,
+              jeu_in: formData.jeu_in, jeu_out: formData.jeu_out,
+              ven_in: formData.ven_in, ven_out: formData.ven_out,
+              sam_in: formData.sam_in, sam_out: formData.sam_out,
             }
           }
         });
@@ -636,6 +720,8 @@ function EmployeesContent() {
     setSelectedEmployee(employee)
     setShowProfileDialog(true)
   }
+
+  const [localBlocking, setLocalBlocking] = useState<Record<string, boolean>>({})
 
   if (loading) return <div className="flex h-screen items-center justify-center bg-[#f8f6f1]">Chargement des employés...</div>;
   if (error) return <div className="flex h-screen items-center justify-center bg-[#f8f6f1]">Erreur de chargement</div>;
@@ -747,18 +833,33 @@ function EmployeesContent() {
                       <div className="flex items-center gap-2 bg-[#f8f6f1] p-1.5 rounded-full border border-[#c9b896]/20 shadow-sm">
                         <span className="text-[10px] font-bold text-[#8b5a2b] pl-1 uppercase tracking-tight">Accès</span>
                         <Switch
-                          checked={!employee.is_blocked}
-                          onCheckedChange={(checked) => {
+                          checked={localBlocking[employee.id] !== undefined ? !localBlocking[employee.id] : !employee.is_blocked}
+                          onCheckedChange={async (checked) => {
                             if (confirm(`Voulez-vous ${checked ? 'débloquer' : 'bloquer'} l'employé ${employee.name} ?`)) {
-                              toggleUserBlock({
-                                variables: {
-                                  userId: employee.id,
-                                  isBlocked: !checked
-                                }
-                              });
+                              // Optimistically update local state immediately
+                              const newBlockedStatus = !checked;
+                              setLocalBlocking(prev => ({ ...prev, [employee.id]: newBlockedStatus }));
+
+                              try {
+                                await toggleUserBlock({
+                                  variables: {
+                                    userId: employee.id,
+                                    isBlocked: newBlockedStatus
+                                  },
+                                });
+                                // State will be reconciled when refetch completes
+                              } catch (e) {
+                                // Revert on error
+                                setLocalBlocking(prev => {
+                                  const newState = { ...prev };
+                                  delete newState[employee.id];
+                                  return newState;
+                                });
+                                alert("Erreur lors de la modification de l'accès");
+                              }
                             }
                           }}
-                          className="data-[state=checked]:bg-[#34c759] data-[state=unchecked]:bg-[#8e8e93]"
+                          className="data-[state=checked]:bg-[#34c759] data-[state=unchecked]:bg-[#8e8e93] transition-all duration-200"
                         />
                       </div>
                     </div>
@@ -823,7 +924,7 @@ function EmployeesContent() {
                               <span className="font-bold text-[#8b5a2b] uppercase tracking-wide text-xs">Mode Fixe</span>
                               <div className="flex items-center gap-2 text-[#3d2c1e] font-medium">
                                 <Clock className="h-4 w-4 text-[#8b5a2b]" />
-                                <span>{employee.fixed_in?.slice(0, 5)} - {employee.fixed_out?.slice(0, 5)}</span>
+                                <span>Planning Hebdomadaire</span>
                               </div>
                             </div>
                           )}
@@ -1024,7 +1125,7 @@ function EmployeesContent() {
                 <label className="text-base sm:text-lg font-medium text-[#3d2c1e]">Email professionnel</label>
                 <Input
                   type="email"
-                  placeholder="jean@businessbey.com"
+                  placeholder="jean@gestion.com"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="bg-white border-[#c9b896]/30 focus:border-[#8b5a2b] h-12 sm:h-14 text-base sm:text-lg"
@@ -1215,26 +1316,67 @@ function EmployeesContent() {
 
               {formData.isFixed && (
                 <div className="bg-[#8b5a2b]/5 p-6 rounded-2xl border border-[#8b5a2b]/10 animate-in fade-in slide-in-from-top-4 duration-500 mb-6">
-                  <p className="text-sm font-bold text-[#8b5a2b] mb-4 uppercase tracking-wider">Horaires Fixes Personnalisés</p>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-[#3d2c1e]">Heure d'entrée</label>
-                      <Input
-                        type="time"
-                        value={formData.fixed_in}
-                        onChange={(e) => setFormData({ ...formData, fixed_in: e.target.value })}
-                        className="bg-white border-[#c9b896]/30 h-11 text-base font-medium focus:ring-[#8b5a2b]"
-                      />
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-sm font-bold text-[#8b5a2b] uppercase tracking-wider">Horaires Fixes Détaillés</p>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          const firstTimeIn = formData.lun_in || formData.fixed_in || "08:00";
+                          const firstTimeOut = formData.lun_out || formData.fixed_out || "17:00";
+                          setFormData({
+                            ...formData,
+                            lun_in: firstTimeIn, lun_out: firstTimeOut,
+                            mar_in: firstTimeIn, mar_out: firstTimeOut,
+                            mer_in: firstTimeIn, mer_out: firstTimeOut,
+                            jeu_in: firstTimeIn, jeu_out: firstTimeOut,
+                            ven_in: firstTimeIn, ven_out: firstTimeOut,
+                            sam_in: firstTimeIn, sam_out: firstTimeOut,
+                            dim_in: firstTimeIn, dim_out: firstTimeOut,
+                          });
+                        }}
+                        className="text-[10px] h-7 bg-[#8b5a2b]/10 text-[#8b5a2b] hover:bg-[#8b5a2b]/20"
+                      >
+                        Appliquer à tous
+                      </Button>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-[#3d2c1e]">Heure de sortie</label>
-                      <Input
-                        type="time"
-                        value={formData.fixed_out}
-                        onChange={(e) => setFormData({ ...formData, fixed_out: e.target.value })}
-                        className="bg-white border-[#c9b896]/30 h-11 text-base font-medium focus:ring-[#8b5a2b]"
-                      />
-                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {[
+                      { key: 'lun', label: 'Lundi' },
+                      { key: 'mar', label: 'Mardi' },
+                      { key: 'mer', label: 'Mercredi' },
+                      { key: 'jeu', label: 'Jeudi' },
+                      { key: 'ven', label: 'Vendredi' },
+                      { key: 'sam', label: 'Samedi' },
+                      { key: 'dim', label: 'Dimanche' },
+                    ].map((day) => (
+                      <div key={day.key} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-white rounded-xl border border-[#c9b896]/20 gap-3">
+                        <span className="font-bold text-[#3d2c1e] min-w-[100px]">{day.label}</span>
+                        <div className="flex items-center gap-4 flex-1">
+                          <div className="flex-1 space-y-1">
+                            <label className="text-[10px] uppercase text-[#8b5a2b] font-bold">Entrée</label>
+                            <Input
+                              type="time"
+                              value={(formData as any)[`${day.key}_in`]}
+                              onChange={(e) => setFormData({ ...formData, [`${day.key}_in`]: e.target.value })}
+                              className="h-9 text-sm border-[#c9b896]/30"
+                            />
+                          </div>
+                          <div className="flex-1 space-y-1">
+                            <label className="text-[10px] uppercase text-[#8b5a2b] font-bold">Sortie</label>
+                            <Input
+                              type="time"
+                              value={(formData as any)[`${day.key}_out`]}
+                              onChange={(e) => setFormData({ ...formData, [`${day.key}_out`]: e.target.value })}
+                              className="h-9 text-sm border-[#c9b896]/30"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -1333,7 +1475,7 @@ function EmployeesContent() {
 
       {/* View Profile Dialog */}
       <Dialog open={showProfileDialog} onOpenChange={setShowProfileDialog}>
-        <DialogContent className="bg-white border-0 shadow-2xl w-[95vw] max-w-[95vw] sm:max-w-[500px] md:max-w-[600px] p-0 overflow-hidden rounded-xl sm:rounded-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent showCloseButton={false} className="bg-white border-0 shadow-2xl w-[95vw] max-w-[95vw] sm:max-w-[500px] md:max-w-[600px] p-0 overflow-hidden rounded-xl sm:rounded-2xl max-h-[90vh] overflow-y-auto">
           <div className="bg-gradient-to-br from-[#8b5a2b] to-[#6b4521] p-6 sm:p-8 md:p-10 pb-16 sm:pb-18 md:pb-20 text-white relative">
             <button
               onClick={() => setShowProfileDialog(false)}

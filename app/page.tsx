@@ -9,10 +9,13 @@ import { Users, Clock, DollarSign, AlertCircle, Calendar, CheckCircle, Coffee } 
 import { mockUsers, mockAttendance, mockAdvances, currentUser } from "@/lib/mock-data"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { gql, useQuery, useMutation } from "@apollo/client"
+import { gql, useQuery, useMutation, useLazyQuery } from "@apollo/client"
 import { Suspense, useEffect, useMemo } from "react"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
+import { useRouter } from "next/navigation"
+import { getCurrentUser, setCurrentUser } from "@/lib/mock-data"
+import Swal from "sweetalert2"
 
 // Optimized query - fetch only active users
 const GET_PERSONNEL_STATUS = gql`
@@ -31,6 +34,10 @@ const GET_PERSONNEL_STATUS = gql`
       clockOut
       state
       shift
+      p1_in
+      p1_out
+      p2_in
+      p2_out
       delay
       infraction
       remarque
@@ -69,8 +76,43 @@ const SYNC_ATTENDANCE = gql`
     }
   `
 
+const CHECK_USER_BLOCKED = gql`
+  query CheckUserBlocked($username: String!) {
+    checkUserBlocked(username: $username)
+  }
+`
+
 function DashboardContent() {
+  const router = useRouter();
   const [syncAttendance] = useMutation(SYNC_ATTENDANCE);
+  const [checkBlocked] = useLazyQuery(CHECK_USER_BLOCKED, { fetchPolicy: "network-only" });
+
+  // Check if current user is blocked on mount
+  useEffect(() => {
+    const sessionUser = getCurrentUser();
+    if (!sessionUser?.name) return;
+
+    const doCheck = async () => {
+      try {
+        const { data } = await checkBlocked({ variables: { username: sessionUser.name } });
+        if (data?.checkUserBlocked === true) {
+          setCurrentUser(null);
+          await Swal.fire({
+            icon: 'error',
+            title: 'Compte Bloqué',
+            text: 'Votre compte a été bloqué. Veuillez contacter l\'administrateur.',
+            confirmButtonColor: '#8b5a2b',
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+          });
+          window.location.href = "/login";
+        }
+      } catch (e) {
+        console.error("Block check error:", e);
+      }
+    };
+    doCheck();
+  }, []);
 
   // Use month format that matches server `month` column (e.g. "décembre 2025")
   // Logical Today (respected 07:00 AM cutoff)

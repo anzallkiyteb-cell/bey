@@ -229,55 +229,7 @@ export default function SettingsPage() {
               </div>
             </Card>
 
-            <Card className="border-[#c9b896] bg-white p-4 sm:p-6 shadow-md">
-              <div className="mb-4 flex items-center gap-2">
-                <Bell className="h-5 w-5 text-[#8b5a2b]" />
-                <h3 className="font-[family-name:var(--font-heading)] text-base sm:text-lg font-semibold text-[#3d2c1e]">
-                  Notifications
-                </h3>
-              </div>
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <p className="font-medium text-[#3d2c1e] text-sm sm:text-base">Notifications par Email</p>
-                    <p className="text-xs sm:text-sm text-[#6b5744]">Recevoir des mises à jour par email</p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-[#8b5a2b] text-[#8b5a2b] hover:bg-[#8b5a2b]/10 bg-transparent w-full sm:w-auto"
-                  >
-                    Activer
-                  </Button>
-                </div>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <p className="font-medium text-[#3d2c1e] text-sm sm:text-base">Rappels de Pointage</p>
-                    <p className="text-xs sm:text-sm text-[#6b5744]">Rappels pour pointer entrée/sortie</p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-[#8b5a2b] text-[#8b5a2b] hover:bg-[#8b5a2b]/10 bg-transparent w-full sm:w-auto"
-                  >
-                    Activer
-                  </Button>
-                </div>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <p className="font-medium text-[#3d2c1e] text-sm sm:text-base">Mises à Jour des Avances</p>
-                    <p className="text-xs sm:text-sm text-[#6b5744]">Notifications sur les demandes d'avances</p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-[#8b5a2b] text-[#8b5a2b] hover:bg-[#8b5a2b]/10 bg-transparent w-full sm:w-auto"
-                  >
-                    Activer
-                  </Button>
-                </div>
-              </div>
-            </Card>
+
 
             <Card className="border-[#c9b896] bg-white p-4 sm:p-6 shadow-md">
               <div className="mb-4 flex items-center gap-2">

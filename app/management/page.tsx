@@ -4,7 +4,7 @@ import { Sidebar } from "@/components/sidebar"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import { Edit, Shield, Save, Plus, Trash2, Loader2, Eye, EyeOff } from "lucide-react"
+import { Edit, Shield, Save, Plus, Trash2, Loader2, Eye, EyeOff, Ban, UserCheck } from "lucide-react"
 
 import { useState, useEffect } from "react"
 import { gql, useQuery, useMutation } from "@apollo/client"
@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import Swal from "sweetalert2"
 
 const GET_MANAGERS = gql`
   query GetLogins {
@@ -22,6 +23,7 @@ const GET_MANAGERS = gql`
       role
       photo
       permissions
+      full_name
     }
   }
 `
@@ -51,6 +53,16 @@ const CREATE_ACCOUNT = gql`
 const DELETE_ACCOUNT = gql`
   mutation DeleteLoginAccount($id: ID!) {
     deleteLoginAccount(id: $id)
+  }
+`
+
+const BLOCK_ACCOUNT = gql`
+  mutation BlockLoginAccount($id: ID!, $blocked: Boolean!) {
+    blockLoginAccount(id: $id, blocked: $blocked) {
+      id
+      username
+      full_name
+    }
   }
 `
 
@@ -195,6 +207,47 @@ export default function ManagementPage() {
         }
     })
 
+    const [blockAccount, { loading: isBlocking }] = useMutation(BLOCK_ACCOUNT, {
+        onCompleted: (data) => {
+            refetch()
+            const isBlocked = data?.blockLoginAccount?.full_name?.toLowerCase() === 'block';
+            Swal.fire({
+                icon: 'success',
+                title: isBlocked ? 'Compte bloqué' : 'Compte débloqué',
+                text: isBlocked ? 'Compte bloqué avec succès' : 'Compte débloqué avec succès',
+                confirmButtonColor: '#8b5a2b',
+            })
+        },
+        onError: (error) => {
+            Swal.fire({
+                icon: 'error',
+                title: 'Erreur',
+                text: error.message,
+                confirmButtonColor: '#8b5a2b',
+            })
+        }
+    })
+
+    const handleBlockToggle = (manager: any, e: any) => {
+        e.stopPropagation()
+        const isCurrentlyBlocked = manager.full_name?.toLowerCase() === 'block';
+        const action = isCurrentlyBlocked ? "débloquer" : "bloquer";
+        Swal.fire({
+            title: `${isCurrentlyBlocked ? 'Débloquer' : 'Bloquer'} ce compte ?`,
+            text: `Êtes-vous sûr de vouloir ${action} ce compte ?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: isCurrentlyBlocked ? '#059669' : '#dc2626',
+            cancelButtonColor: '#6b7280',
+            confirmButtonText: isCurrentlyBlocked ? 'Oui, débloquer' : 'Oui, bloquer',
+            cancelButtonText: 'Annuler',
+        }).then((result) => {
+            if (result.isConfirmed) {
+                blockAccount({ variables: { id: manager.id, blocked: !isCurrentlyBlocked } })
+            }
+        })
+    }
+
     const handleOpenPermissions = (user: any) => {
         setIsAddMode(false)
         setSelectedUser(user)
@@ -317,6 +370,21 @@ export default function ManagementPage() {
                                 <Button
                                     variant="ghost"
                                     size="sm"
+                                    className={cn(
+                                        "h-8 w-8 p-0 rounded-lg border sm:border-none",
+                                        manager.full_name?.toLowerCase() === 'block'
+                                            ? "text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-100 bg-emerald-50/50 sm:bg-transparent"
+                                            : "text-orange-500 hover:text-orange-700 hover:bg-orange-50 border-orange-100 bg-orange-50/50 sm:bg-transparent"
+                                    )}
+                                    onClick={(e) => handleBlockToggle(manager, e)}
+                                    disabled={isBlocking}
+                                    title={manager.full_name?.toLowerCase() === 'block' ? "Débloquer" : "Bloquer"}
+                                >
+                                    {manager.full_name?.toLowerCase() === 'block' ? <UserCheck className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
                                     className="h-8 w-8 p-0 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-rose-100 sm:border-none bg-rose-50/50 sm:bg-transparent"
                                     onClick={(e) => handleDelete(manager.id, e)}
                                 >
@@ -333,17 +401,29 @@ export default function ManagementPage() {
                                     )}
                                 </div>
                                 <div className="min-w-0 flex-1 sm:w-full">
-                                    <h3 className="font-black text-[#3d2c1e] text-lg sm:text-xl truncate uppercase leading-tight group-hover:text-[#8b5a2b] transition-colors">
+                                    <h3 className={cn(
+                                        "font-black text-lg sm:text-xl truncate uppercase leading-tight transition-colors",
+                                        manager.full_name?.toLowerCase() === 'block'
+                                            ? "text-gray-400 line-through"
+                                            : "text-[#3d2c1e] group-hover:text-[#8b5a2b]"
+                                    )}>
                                         {manager.username}
                                     </h3>
-                                    <span className={cn(
-                                        "inline-block mt-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border",
-                                        manager.role === "admin"
-                                            ? "bg-indigo-50 text-indigo-700 border-indigo-100"
-                                            : "bg-amber-50 text-amber-700 border-amber-100"
-                                    )}>
-                                        {manager.role}
-                                    </span>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                        <span className={cn(
+                                            "inline-block px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border",
+                                            manager.role === "admin"
+                                                ? "bg-indigo-50 text-indigo-700 border-indigo-100"
+                                                : "bg-amber-50 text-amber-700 border-amber-100"
+                                        )}>
+                                            {manager.role}
+                                        </span>
+                                        {manager.full_name?.toLowerCase() === 'block' && (
+                                            <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border bg-rose-50 text-rose-700 border-rose-100">
+                                                BLOQUÉ
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="hidden sm:flex items-center justify-center w-full pt-4 mt-2 border-t border-[#f8f6f1]">
                                     <span className="text-[10px] font-black text-[#8b5a2b] uppercase tracking-[0.2em] opacity-40 group-hover:opacity-100 transition-opacity flex items-center gap-1">

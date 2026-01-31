@@ -39,6 +39,10 @@ const GET_PERSONNEL_STATUS = gql`
       shift
       lastPunch
       workedHours
+      p1_in
+      p1_out
+      p2_in
+      p2_out
       delay
       infraction
       remarque
@@ -701,10 +705,16 @@ function AttendanceContent() {
                             <span className="text-[#6b5744] font-bold text-xs uppercase tracking-widest px-3 py-1 bg-[#8b5a2b]/5 rounded-lg border border-[#8b5a2b]/10 whitespace-nowrap">{person.user.departement || "Non défini"}</span>
                           </td>
                           <td className="px-6 py-4 text-center">
-                            <div className="font-mono font-black text-[#3d2c1e] text-lg">{person.clockIn || "--:--"}</div>
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="font-mono font-black text-[#3d2c1e] text-lg">{person.p1_in || person.clockIn || "--:--"}</div>
+                              {person.p2_in && <div className="font-mono font-bold text-[#8b5a2b] text-sm border-t border-[#c9b896]/30 pt-1">{person.p2_in}</div>}
+                            </div>
                           </td>
                           <td className="px-6 py-4 text-center">
-                            <div className="font-mono font-black text-[#3d2c1e] text-lg">{person.clockOut || "--:--"}</div>
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="font-mono font-black text-[#3d2c1e] text-lg">{person.p1_out || person.clockOut || "--:--"}</div>
+                              {person.p2_out && <div className="font-mono font-bold text-[#8b5a2b] text-sm border-t border-[#c9b896]/30 pt-1">{person.p2_out}</div>}
+                            </div>
                           </td>
                           <td className="px-6 py-4 text-center">
                             <span className={cn(
@@ -712,7 +722,8 @@ function AttendanceContent() {
                               person.shift === "Soir" ? "bg-indigo-50 text-indigo-700 border-indigo-100" :
                                 person.shift === "Matin" ? "bg-amber-50 text-amber-700 border-amber-100" :
                                   person.shift === "Doublage" ? "bg-purple-50 text-purple-700 border-purple-100" :
-                                    "bg-gray-50 text-gray-500 border-gray-100"
+                                    person.shift?.includes("Coupure") ? "bg-teal-50 text-teal-700 border-teal-100" :
+                                      "bg-gray-50 text-gray-500 border-gray-100"
                             )}>
                               {person.shift || "—"}
                             </span>
@@ -815,11 +826,17 @@ function AttendanceContent() {
                       <div className="grid grid-cols-3 gap-2 bg-[#f8f6f1]/50 p-3 rounded-xl border border-[#c9b896]/10">
                         <div className="flex flex-col items-center">
                           <span className="text-[8px] font-black text-[#8b5a2b]/50 uppercase tracking-widest">Entrée</span>
-                          <span className="font-mono font-black text-[#3d2c1e] text-sm">{person.clockIn || "--:--"}</span>
+                          <div className="flex flex-col items-center leading-tight">
+                            <span className="font-mono font-black text-[#3d2c1e] text-sm">{person.p1_in || person.clockIn || "--:--"}</span>
+                            {person.p2_in && <span className="font-mono font-bold text-[#8b5a2b] text-[10px] opacity-70 border-t border-[#c9b896]/20 mt-0.5">{person.p2_in}</span>}
+                          </div>
                         </div>
                         <div className="flex flex-col items-center border-x border-[#c9b896]/20">
                           <span className="text-[8px] font-black text-[#8b5a2b]/50 uppercase tracking-widest">Sortie</span>
-                          <span className="font-mono font-black text-[#3d2c1e] text-sm">{person.clockOut || "--:--"}</span>
+                          <div className="flex flex-col items-center leading-tight">
+                            <span className="font-mono font-black text-[#3d2c1e] text-sm">{person.p1_out || person.clockOut || "--:--"}</span>
+                            {person.p2_out && <span className="font-mono font-bold text-[#8b5a2b] text-[10px] opacity-70 border-t border-[#c9b896]/20 mt-0.5">{person.p2_out}</span>}
+                          </div>
                         </div>
                         {isAdmin && (
                           <div className="flex flex-col items-center">
@@ -837,7 +854,8 @@ function AttendanceContent() {
                           person.shift === "Soir" ? "bg-indigo-50 text-indigo-700 border-indigo-100" :
                             person.shift === "Matin" ? "bg-amber-50 text-amber-700 border-amber-100" :
                               person.shift === "Doublage" ? "bg-purple-50 text-purple-700 border-purple-100" :
-                                "bg-gray-50 text-gray-500 border-gray-100"
+                                person.shift?.includes("Coupure") ? "bg-teal-50 text-teal-700 border-teal-100" :
+                                  "bg-gray-50 text-gray-500 border-gray-100"
                         )}>
                           Shift: {person.shift || "—"}
                         </span>
