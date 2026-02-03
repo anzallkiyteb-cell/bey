@@ -6,7 +6,7 @@ import { Sidebar } from "@/components/sidebar"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { DollarSign, TrendingUp, AlertCircle, Plus, CheckCircle, XCircle, Trash2, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight } from "lucide-react"
+import { DollarSign, TrendingUp, AlertCircle, Plus, CheckCircle, XCircle, Trash2, Calendar as CalendarIcon, Loader2, ChevronLeft, ChevronRight, Search, Check, ChevronsUpDown } from "lucide-react"
 import { useState, Suspense, useMemo, useEffect, useCallback } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
@@ -15,6 +15,14 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 import { Label } from "@/components/ui/label"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { gql, useQuery, useMutation } from "@apollo/client"
@@ -22,7 +30,7 @@ import { getCurrentUser } from "@/lib/mock-data"
 
 // GraphQL Queries & Mutations
 const GET_DATA = gql`
-  query GetData($month: String) {
+  query GetData($month: String!) {
     personnelStatus {
       user {
         id
@@ -44,6 +52,12 @@ const GET_DATA = gql`
       date
       motif
       statut
+    }
+    getPayroll(month: $month) {
+      id
+      user_id
+      paid
+      salaire_net
     }
   }
 `
@@ -100,6 +114,7 @@ function AdvancesContent() {
   const filterParam = searchParams.get("filter")
 
   const [selectedMonth, setSelectedMonth] = useState(new Date())
+  const [employeeSearchOpen, setEmployeeSearchOpen] = useState(false)
   const payrollMonthKey = format(selectedMonth, "yyyy_MM")
 
   const navigateMonth = useCallback((direction: "prev" | "next") => {
@@ -231,10 +246,21 @@ function AdvancesContent() {
   const [showUserDetails, setShowUserDetails] = useState(false)
   const [selectedUserForDetails, setSelectedUserForDetails] = useState<any>(null)
 
-  const advances = data?.getAdvances || [];
   const users = useMemo(() => {
     return data?.personnelStatus?.map((p: any) => p.user).filter((u: any) => !u.is_blocked) || [];
   }, [data]);
+
+  const validUserIds = useMemo(() => new Set(users.map((u: any) => String(u.id))), [users]);
+
+  const advances = useMemo(() => {
+    const raw = data?.getAdvances || [];
+    return raw.filter((a: any) => validUserIds.has(String(a.user_id)));
+  }, [data?.getAdvances, validUserIds]);
+
+  const payrollRecords = useMemo(() => {
+    const raw = data?.getPayroll || [];
+    return raw.filter((r: any) => validUserIds.has(String(r.user_id)));
+  }, [data?.getPayroll, validUserIds]);
 
   const departments = useMemo(() => {
     const depts = new Set(users.map((u: any) => u.departement).filter(Boolean));
@@ -290,15 +316,21 @@ function AdvancesContent() {
       .filter((a: any) => a.statut === "Validé")
       .reduce((sum: number, a: any) => sum + (a.montant || 0), 0);
 
-    // Mock salaries for now or better
-    const tSalaries = users.length > 0 ? users.reduce((acc: number, u: any) => acc + (u.base_salary || 1200), 0) : 0;
-    const tRemaining = tSalaries - tAvances;
+    const tSalaries = users.length > 0 ? users.reduce((acc: number, u: any) => acc + (u.base_salary || 0), 0) : 0;
+
+    // Calculate total Paid from payroll records
+    const tPaid = payrollRecords
+      .filter((r: any) => r.paid === true)
+      .reduce((sum: number, r: any) => sum + (r.salaire_net || 0), 0);
+
+    // Total Salaires Base - (Total Avances + Total Payé)
+    const tRemaining = tSalaries - (tAvances + tPaid);
 
     return {
       totalAvances: tAvances,
       totalRemaining: tRemaining
     };
-  }, [advances, users, showStats]);
+  }, [advances, users, payrollRecords, showStats]);
 
   const totalAvances = stats.totalAvances;
   const totalRemaining = stats.totalRemaining;
@@ -838,39 +870,67 @@ function AdvancesContent() {
                 <Label htmlFor="employee" className="text-[10px] font-black text-[#8b5a2b] uppercase tracking-[0.2em] ml-1">
                   Sélectionner l'Employé
                 </Label>
-                <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-[#c9b896]/30 shadow-sm min-h-[56px]">
-                  <div className="h-10 w-10 shrink-0 rounded-lg bg-gradient-to-br from-[#8b5a2b] to-[#a0522d] flex items-center justify-center text-white font-black overflow-hidden shadow-inner">
-                    {(() => {
-                      const user = users.find((u: any) => u.id === selectedUserId);
-                      return user?.photo ? <img src={user.photo} className="h-full w-full object-cover" /> : <Plus className="h-5 w-5 opacity-40" />;
-                    })()}
-                  </div>
-                  <Select value={selectedUserId} onValueChange={setSelectedUserId} required>
-                    <SelectTrigger className="border-none shadow-none focus:ring-0 text-[#3d2c1e] h-auto p-0 text-sm font-black flex-1 min-w-0">
-                      <SelectValue placeholder="Choisir un employé..." />
-                    </SelectTrigger>
-                    <SelectContent className="bg-white border-[#c9b896] max-h-[300px]">
-                      {filteredUsersForDialog.length > 0 ? (
-                        filteredUsersForDialog.map((user: any) => (
-                          <SelectItem key={user.id} value={user.id} className="text-sm">
-                            <div className="flex items-center gap-3">
-                              <div className="h-8 w-8 rounded-full overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center shrink-0">
-                                {user.photo ? (
-                                  <img src={user.photo} alt="" className="w-full h-full object-cover" />
-                                ) : (
-                                  <span className="text-[10px] font-black text-[#8b5a2b]">{user.username.charAt(0).toUpperCase()}</span>
+                <Popover open={employeeSearchOpen} onOpenChange={setEmployeeSearchOpen}>
+                  <PopoverTrigger asChild>
+                    <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-[#c9b896]/30 shadow-sm min-h-[56px] cursor-pointer hover:border-[#8b5a2b]/50 transition-all active:scale-[0.98]">
+                      <div className="h-10 w-10 shrink-0 rounded-lg bg-gradient-to-br from-[#8b5a2b] to-[#a0522d] flex items-center justify-center text-white font-black overflow-hidden shadow-inner">
+                        {(() => {
+                          const user = users.find((u: any) => u.id === selectedUserId);
+                          return user?.photo ? <img src={user.photo} className="h-full w-full object-cover" /> : <Plus className="h-5 w-5 opacity-40" />;
+                        })()}
+                      </div>
+                      <div className="flex-1 flex justify-between items-center text-[#3d2c1e] text-sm font-black min-w-0">
+                        <span className="truncate">
+                          {selectedUserId
+                            ? users.find((u: any) => u.id === selectedUserId)?.username
+                            : "Choisir un employé..."}
+                        </span>
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50 text-[#8b5a2b]" />
+                      </div>
+                    </div>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="p-0 bg-white border-[#c9b896] shadow-2xl rounded-xl overflow-hidden w-[var(--radix-popover-trigger-width)]"
+                    align="start"
+                    sideOffset={6}
+                  >
+                    <Command className="bg-white">
+                      <CommandInput placeholder="Rechercher un employé..." className="h-12 border-none focus:ring-0" />
+                      <CommandList className="max-h-[250px] border-t border-[#c9b896]/10">
+                        <CommandEmpty className="p-4 text-center text-xs font-bold text-[#8b5a2b] opacity-40 uppercase">Aucun employé trouvé</CommandEmpty>
+                        <CommandGroup className="p-1">
+                          {filteredUsersForDialog.length > 0 ? (
+                            filteredUsersForDialog.map((user: any) => (
+                              <CommandItem
+                                key={user.id}
+                                value={user.username}
+                                onSelect={() => {
+                                  setSelectedUserId(user.id);
+                                  setEmployeeSearchOpen(false);
+                                }}
+                                className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer hover:bg-[#f8f6f1] aria-selected:bg-[#f8f6f1] transition-colors"
+                              >
+                                <div className="h-8 w-8 rounded-full overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center shrink-0">
+                                  {user.photo ? (
+                                    <img src={user.photo} alt="" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <span className="text-[10px] font-black text-[#8b5a2b]">{user.username.charAt(0).toUpperCase()}</span>
+                                  )}
+                                </div>
+                                <span className="font-bold flex-1 text-[#3d2c1e]">{user.username}</span>
+                                {selectedUserId === user.id && (
+                                  <Check className="h-4 w-4 text-[#8b5a2b]" />
                                 )}
-                              </div>
-                              <span className="font-bold">{user.username}</span>
-                            </div>
-                          </SelectItem>
-                        ))
-                      ) : (
-                        <div className="p-4 text-center text-xs font-bold text-[#8b5a2b] opacity-40">AUCUN EMPLOYÉ</div>
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
+                              </CommandItem>
+                            ))
+                          ) : (
+                            <div className="p-4 text-center text-xs font-bold text-[#8b5a2b] opacity-40 uppercase">AUCUN EMPLOYÉ</div>
+                          )}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
             <div className="space-y-2">
