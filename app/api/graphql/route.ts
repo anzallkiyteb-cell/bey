@@ -1392,7 +1392,6 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
     }
 
     // Manual or Auto overlays
-    if (dayExtra > 0) finalPresent = 0;
     if (shiftType === "Repos") finalPresent = 0;
     if (isAbsent) finalPresent = 0;
 
@@ -3368,10 +3367,6 @@ const resolvers = {
       await recomputePayrollForDate(dateSQL as string, String(user_id));
 
       // 5. Then apply manual overrides from the fiche (these "win" for this specific record)
-      // If an 'extra' is added manually from the fiche, force present = 0
-      if (input.extra > 0) {
-        input.present = 0;
-      }
 
       const updates: string[] = [];
       const params: any[] = [id];

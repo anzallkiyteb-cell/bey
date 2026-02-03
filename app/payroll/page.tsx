@@ -183,7 +183,7 @@ const UNPAY_USER = gql`
 const calculateUserStats = (user: any, userRecords: any[], userSchedule: any, monthDate: Date) => {
   const daysInMonth = getDaysInMonth(monthDate);
   const divisor = Number(user.nbmonth) || daysInMonth; // Ensure number
-  const presentDays = userRecords.filter((r: any) => r.present === 1).length;
+  const presentDays = userRecords.reduce((sum: number, r: any) => sum + (parseFloat(r.present || 0)), 0);
 
   const baseSalary = user.base_salary || 0;
   const dayValue = baseSalary / divisor;
