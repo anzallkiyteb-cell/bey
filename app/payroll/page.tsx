@@ -77,6 +77,7 @@ const GET_PAYROLL_DATA = gql`
       remarque
       doublage
       paid
+      salaire_net
     }
   }
 `
@@ -200,8 +201,12 @@ const calculateUserStats = (user: any, userRecords: any[], userSchedule: any, mo
 
   const deductions = totalInfractions + totalAdvances;
 
+  // Check if there's a manual net salary override (set via Fiche de Paie)
+  const manualNetOverride = userRecords.find((r: any) => (r.salaire_net || 0) > 0)?.salaire_net;
+
   // USER LOGIC: Net Salary does NOT include primes/extras/doublages because they are paid immediately
-  const netSalary = calculatedSalary - deductions;
+  // Use manual override if it exists, otherwise calculate
+  const netSalary = manualNetOverride ? manualNetOverride : calculatedSalary - deductions;
 
   // For display of "Jours Abs", we show how many days were NOT paid vs the contract (divisor)
   const absentDays = Math.max(0, divisor - paidDays);

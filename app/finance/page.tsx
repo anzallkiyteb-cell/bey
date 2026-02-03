@@ -46,6 +46,7 @@ const GET_FINANCE_DATA = gql`
         retard
         doublage
         paid
+        salaire_net
     }
   }
 `
@@ -124,8 +125,11 @@ export default function FinancePage() {
             totalInfractions += infractions
             totalBaseSalary += (user.base_salary || 0)
 
-            // Net for this user
-            const userNet = calculatedSalary - avances - infractions
+            // Check if there's a manual net salary override (set via Fiche de Paie)
+            const manualNetOverride = userRecords.find((r: any) => (r.salaire_net || 0) > 0)?.salaire_net
+
+            // Net for this user - use override if exists, otherwise calculate
+            const userNet = manualNetOverride ? manualNetOverride : calculatedSalary - avances - infractions
 
             // Check if paid
             const isPaid = userRecords.some((r: any) => r.paid === true)
