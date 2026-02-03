@@ -696,15 +696,22 @@ export default function PayrollPage() {
   }, [payrollSummary, searchTerm, selectedDepartment])
 
   const globalStats = useMemo(() => {
+    const tPay = filteredPayrollSummary.reduce((acc: number, curr: any) => acc + curr.baseSalary, 0);
+    const tAdvances = filteredPayrollSummary.reduce((acc: number, curr: any) => acc + curr.totalAdvances, 0);
+    const tPrimes = filteredPayrollSummary.reduce((acc: number, curr: any) => acc + curr.totalPrimes, 0);
+    const tExtras = filteredPayrollSummary.reduce((acc: number, curr: any) => acc + curr.totalExtras, 0);
+    const tDoublages = filteredPayrollSummary.reduce((acc: number, curr: any) => acc + curr.totalDoublages, 0);
+    const tPaid = filteredPayrollSummary.reduce((acc: number, curr: any) => acc + (curr.isPaid ? curr.netSalary : 0), 0);
+
     return {
-      totalPay: filteredPayrollSummary.reduce((acc: number, curr: any) => acc + curr.baseSalary, 0),
-      totalAdvances: filteredPayrollSummary.reduce((acc: number, curr: any) => acc + curr.totalAdvances, 0),
-      totalPrimes: filteredPayrollSummary.reduce((acc: number, curr: any) => acc + curr.totalPrimes, 0),
-      totalExtras: filteredPayrollSummary.reduce((acc: number, curr: any) => acc + curr.totalExtras, 0),
-      totalDoublages: filteredPayrollSummary.reduce((acc: number, curr: any) => acc + curr.totalDoublages, 0),
-      totalNet: filteredPayrollSummary.reduce((acc: number, curr: any) => acc + (curr.isPaid ? 0 : curr.netSalary), 0),
-      totalPaid: filteredPayrollSummary.reduce((acc: number, curr: any) => acc + (curr.isPaid ? curr.netSalary : 0), 0),
-    }
+      totalPay: tPay,
+      totalAdvances: tAdvances,
+      totalPrimes: tPrimes,
+      totalExtras: tExtras,
+      totalDoublages: tDoublages,
+      totalNet: tPay - (tAdvances + tPaid),
+      totalPaid: tPaid,
+    };
   }, [filteredPayrollSummary]);
 
   // Get unique departments
@@ -1118,7 +1125,7 @@ export default function PayrollPage() {
             )}
             {canSee('payroll', 'stats_net_global') && (
               <Card className="border-[#c9b896] bg-white p-4 shadow-md">
-                <p className="text-sm text-[#6b5744]">Net Global {selectedDepartment !== "all" ? `(${selectedDepartment})` : (searchTerm ? "(Filtré)" : "")}</p>
+                <p className="text-sm text-[#6b5744]">Net Global (Sans Infraction) {selectedDepartment !== "all" ? `(${selectedDepartment})` : (searchTerm ? "(Filtré)" : "")}</p>
                 <p className="text-2xl font-bold text-[#c9a227]">{globalStats.totalNet.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DT</p>
               </Card>
             )}
