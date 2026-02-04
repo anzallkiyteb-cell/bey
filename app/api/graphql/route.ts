@@ -3440,34 +3440,28 @@ const resolvers = {
         if (val === undefined) return;
         const motifPrefix = label.toLowerCase();
         const check = await pool.query(`SELECT id FROM public.extras WHERE user_id = $1 AND date_extra::date = $2::date AND LOWER(motif) LIKE $3`, [user_id, dateSQL, `${motifPrefix}%`]);
-
         const motif = (label === 'Extra') ? 'Extra' : label;
 
-        if (val === 0) {
-          // If value is 0 and no record exists, don't create one (avoid cluttering)
-          if (check.rows.length === 0) return;
-
-          // If record exists and value is set to 0:
-          // For Extra/Prime, we can just delete it because 0 is the default anyway.
-          // For Infraction, we might want to keep it as 0 to override an automatic penalty.
-          if (label !== 'Infraction') {
-            await pool.query('DELETE FROM public.extras WHERE id = $1', [check.rows[0].id]);
-            return;
+        // For non-infractions, value of 0 means we remove the record entirely.
+        // For infractions, value of 0 is a manual override to cancel automatic penalties.
+        if (val === 0 && label !== 'Infraction') {
+          if (check.rows.length > 0) {
+            for (const r of check.rows) {
+              await pool.query('DELETE FROM public.extras WHERE id = $1', [r.id]);
+            }
           }
-          // For Infraction, update to 0 so the override remains active.
-          await pool.query('UPDATE public.extras SET montant = 0, motif = $1 WHERE id = $2', [motif, check.rows[0].id]);
           return;
         }
 
         if (check.rows.length > 0) {
+          // Update the first one to the new value
           await pool.query('UPDATE public.extras SET montant = $1, motif = $2 WHERE id = $3', [val, motif, check.rows[0].id]);
-          // Cleanup duplicates
-          if (check.rows.length > 1) {
-            for (let k = 1; k < check.rows.length; k++) {
-              await pool.query('DELETE FROM public.extras WHERE id = $1', [check.rows[k].id]);
-            }
+          // Cleanup any duplicates that might have been created
+          for (let k = 1; k < check.rows.length; k++) {
+            await pool.query('DELETE FROM public.extras WHERE id = $1', [check.rows[k].id]);
           }
         } else {
+          // No record exists yet, create one
           await pool.query('INSERT INTO public.extras(user_id, username, montant, date_extra, motif) VALUES($1, $2, $3, $4, $5)', [user_id, username, val, dateSQL, motif]);
         }
       };
