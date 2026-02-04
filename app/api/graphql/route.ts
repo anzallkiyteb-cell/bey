@@ -1019,7 +1019,20 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
   const usersData = await Promise.all(users.map(async (user: any) => {
     const userIdNum = Number(user.id);
     let userPunches = punchesByUser.get(userIdNum) || [];
-    userPunches.sort((a: any, b: any) => new Date(a.device_time).getTime() - new Date(b.device_time).getTime());
+    userPunches.sort((a: any, b: any) => parseMachineDate(a.device_time).getTime() - parseMachineDate(b.device_time).getTime());
+
+    // Deduplicate: ignore punches within 60 seconds of each other (prevents double-tap issues)
+    const dedupedPunches = [];
+    let lastMoment = 0;
+    for (const p of userPunches) {
+      const currentMoment = parseMachineDate(p.device_time).getTime();
+      if (currentMoment - lastMoment > 60000) {
+        dedupedPunches.push(p);
+        lastMoment = currentMoment;
+      }
+    }
+    userPunches = dedupedPunches;
+
 
     const schedule = schedulesMap.get(userIdNum);
     let shiftType = schedule ? schedule[dayCol] : "Repos";
@@ -1236,8 +1249,7 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
             }
           }
 
-          if (isPastDay && userPunches.length % 2 !== 0) {
-            isAbsent = true;
+          if (isPastDay && userPunches.length === 1) {
             isRetard = false;
             reason = "Pointage de sortie manquant (Fixe)";
           }
@@ -1284,8 +1296,7 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
             }
           }
 
-          if (isPastDay && userPunches.length % 2 !== 0) {
-            isAbsent = true;
+          if (isPastDay && userPunches.length === 1) {
             isRetard = false;
             reason = "Pointage de sortie manquant";
           }
