@@ -129,29 +129,17 @@ function DashboardContent() {
   const payrollMonth = format(logicalNow, 'yyyy_MM');
   const today = format(logicalNow, 'yyyy-MM-dd');
 
-  // Trigger sync on mount (non-blocking, in background)
-  useEffect(() => {
-    // Use setTimeout to ensure this doesn't block initial render
-    const timer = setTimeout(() => {
-      syncAttendance({ variables: { date: today } }).catch(e => console.error("Sync Error:", e));
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [today, syncAttendance]);
-
-  // Split queries for better performance - load personnel status first
-  const { data: personnelData, loading: personnelLoading, error: personnelError } = useQuery(GET_PERSONNEL_STATUS, {
+  const { refetch: refetchPersonnel, data: personnelData, loading: personnelLoading, error: personnelError } = useQuery(GET_PERSONNEL_STATUS, {
     variables: { date: today },
     fetchPolicy: "cache-and-network",
     nextFetchPolicy: "cache-first",
     pollInterval: 60000, // Poll every 60 seconds
-    onCompleted: (data) => {
-    },
     onError: (error) => {
       console.error('[Dashboard] Personnel query error:', error);
     }
   });
 
-  const { data: financialData, loading: financialLoading, error: financialError } = useQuery(GET_FINANCIAL_DATA, {
+  const { refetch: refetchFinancial, data: financialData, loading: financialLoading, error: financialError } = useQuery(GET_FINANCIAL_DATA, {
     variables: {
       month: currentMonth,
       payrollMonth: payrollMonth
@@ -159,12 +147,26 @@ function DashboardContent() {
     fetchPolicy: "cache-and-network",
     nextFetchPolicy: "cache-first",
     skip: !personnelData,
-    onCompleted: (data) => {
-    },
     onError: (error) => {
       console.error('[Dashboard] Financial query error:', error);
     }
   });
+
+  // Trigger sync on mount (non-blocking, in background)
+  useEffect(() => {
+    // Use setTimeout to ensure this doesn't block initial render
+    const timer = setTimeout(async () => {
+      try {
+        await syncAttendance({ variables: { date: today } });
+        // Refresh data after sync completes to show updated stats
+        refetchPersonnel();
+        refetchFinancial();
+      } catch (e) {
+        console.error("Sync Error:", e);
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [today, syncAttendance, refetchPersonnel, refetchFinancial]);
 
   const error = personnelError || financialError;
   const data = personnelData && financialData ? {

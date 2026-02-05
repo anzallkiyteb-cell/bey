@@ -1033,6 +1033,15 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
     }
     userPunches = dedupedPunches;
 
+    // Strict Logical Day Filtering: only keep punches that belong to THIS logical day (04:00 AM to 04:00 AM next day)
+    const dayStartBoundary = new Date(`${dateSQL}T04:00:00.000+01:00`);
+    const dayEndBoundary = new Date(dayStartBoundary.getTime() + 24 * 60 * 60 * 1000);
+
+    userPunches = userPunches.filter((p: any) => {
+      const pDate = parseMachineDate(p.device_time);
+      return pDate >= dayStartBoundary && pDate < dayEndBoundary;
+    });
+
 
     const schedule = schedulesMap.get(userIdNum);
     let shiftType = schedule ? schedule[dayCol] : "Repos";
@@ -1251,7 +1260,24 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
 
           if (isPastDay && userPunches.length === 1) {
             isRetard = false;
-            reason = "Pointage de sortie manquant (Fixe)";
+            isAbsent = true;
+            const p0Hour = getTunisiaHour(parseMachineDate(userPunches[0].device_time));
+
+            // Intelligence: treat early punches in the logical day as entries, late ones as exits
+            // Window is [04:00, 04:00]. Matin starts 07:00, Soir starts 16:00.
+            let isEntry = true;
+            const sTypeUpper = (shiftType || "").toUpperCase();
+            if (sTypeUpper === "SOIR") {
+              if (p0Hour >= 22 || p0Hour < 6) isEntry = false;
+            } else {
+              if (p0Hour >= 14 || p0Hour < 4) isEntry = false;
+            }
+
+            if (isEntry) {
+              reason = isFixed ? "Pointage de sortie manquant (Fixe)" : "Pointage de sortie manquant";
+            } else {
+              reason = isFixed ? "Pointage d'entrée manquant (Fixe)" : "Pointage d'entrée manquant";
+            }
           }
         }
       }
@@ -1298,7 +1324,22 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
 
           if (isPastDay && userPunches.length === 1) {
             isRetard = false;
-            reason = "Pointage de sortie manquant";
+            isAbsent = true;
+            const p0Hour = getTunisiaHour(parseMachineDate(userPunches[0].device_time));
+
+            let isEntry = true;
+            const sTypeUpper = (shiftType || "").toUpperCase();
+            if (sTypeUpper === "SOIR") {
+              if (p0Hour >= 22 || p0Hour < 6) isEntry = false;
+            } else {
+              if (p0Hour >= 14 || p0Hour < 4) isEntry = false;
+            }
+
+            if (isEntry) {
+              reason = "Pointage de sortie manquant";
+            } else {
+              reason = "Pointage d'entrée manquant";
+            }
           }
         }
       }
@@ -1428,7 +1469,8 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
       finalRemark = currentRetard?.reason || currentAbsent?.reason || null;
     }
 
-    let autoInfraction = (retardMins > 10) ? 30 : 0;
+    const hasMissingPunch = reason && (reason.includes("Pointage de sortie manquant") || reason.includes("Pointage d'entrée manquant"));
+    let autoInfraction = (retardMins > 10 || hasMissingPunch) ? 30 : 0;
     const totalAdvance = advancesMap.get(userIdNum) || 0;
     let dayDoublage = doublagesMap.get(userIdNum) || 0;
 
@@ -1450,8 +1492,25 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
     let clockIn = null;
     let clockOut = null;
     if (userPunches.length > 0) {
-      clockIn = formatTime(userPunches[0].device_time);
-      if (userPunches.length > 1) {
+      if (userPunches.length === 1) {
+        const p0Hour = getTunisiaHour(parseMachineDate(userPunches[0].device_time));
+        let isEntry = true;
+        const sTypeUpper = (shiftType || "").toUpperCase();
+        if (sTypeUpper === "SOIR") {
+          if (p0Hour >= 22 || p0Hour < 6) isEntry = false;
+        } else {
+          if (p0Hour >= 14 || p0Hour < 4) isEntry = false;
+        }
+
+        if (isEntry) {
+          clockIn = formatTime(userPunches[0].device_time);
+          clockOut = null;
+        } else {
+          clockOut = formatTime(userPunches[0].device_time);
+          clockIn = null;
+        }
+      } else {
+        clockIn = formatTime(userPunches[0].device_time);
         clockOut = formatTime(userPunches[userPunches.length - 1].device_time);
       }
     }
@@ -1465,7 +1524,8 @@ async function recomputePayrollForDate(targetDateStr: string, specificUserId: st
     return {
       finalPresent, totalAdvance, dayExtra, dayPrime, dayInfraction, dayDoublage, miseAPiedDays, retardMins, finalRemark,
       userId: user.id, dateSQL, username: user.username, clockIn, clockOut, forceUpdated,
-      coupureP1In, coupureP1Out, coupureP2In, coupureP2Out
+      coupureP1In, coupureP1Out, coupureP2In, coupureP2Out,
+      userPunchesCount: userPunches.length // for debugging if needed
     };
   }));
 
@@ -2046,9 +2106,10 @@ const resolvers = {
               const isPresentType = t === "présent" || t === "present" || t === "justifié" || t === "justifie";
               const isAbsentType = ['absence', 'absent', 'injustifié', 'injustifie', 'non justifié', 'non justifie', 'mise à pied', 'mise a pied', 'injustice'].includes(t);
 
-              if (dayAbsent.reason === "Pointage de sortie manquant") {
+              if (dayAbsent.reason && dayAbsent.reason.includes("Pointage de sortie manquant")) {
                 finalPresent = 0;
-                finalRemark = "Pointage de sortie manquant";
+                finalRemark = dayAbsent.reason;
+                if (finalInfraction < 30) finalInfraction += 30;
               } else if (isPresentType) {
                 finalPresent = 1;
                 finalRemark = dayAbsent.reason || "Présent";
@@ -3693,18 +3754,19 @@ const resolvers = {
       }
       if (!date) lastSyncThrottle.set(todayStr, nowTs);
 
-      // Default: Only sync Today and Yesterday for performance.
-      const daysToSync = 2;
-      const syncPromises = [];
+      // Sync the last 10 days by default to ensure accuracy and catch night shifts across month boundaries
+      const daysToSync = 10;
       const baseDate = new Date(todayStr + 'T12:00:00');
 
       for (let i = 0; i < daysToSync; i++) {
         const d = new Date(baseDate);
         d.setDate(d.getDate() - i);
-        syncPromises.push(recomputePayrollForDate(formatDateLocal(d) as string));
+        const targetDate = formatDateLocal(d);
+        if (targetDate) {
+          // Process sequentially to keep DB connections stable
+          await recomputePayrollForDate(targetDate);
+        }
       }
-
-      await Promise.all(syncPromises);
       invalidateCache();
       return true;
     },
